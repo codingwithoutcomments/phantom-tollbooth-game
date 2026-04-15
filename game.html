@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Phantom Tollbooth Game</title>
+<style>
+  @font-face {
+    font-family: 'PressStart';
+    src: url('https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2') format('woff2');
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f0f23;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    border: 4px solid #333;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ============================================================
+// THE PHANTOM TOLLBOOTH GAME
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// Game dimensions (internal resolution — scaled up for retro look)
+const W = 480;
+const H = 320;
+canvas.width = W;
+canvas.height = H;
+
+// Scale canvas to fit screen
+function resizeCanvas() {
+  const scale = Math.min(
+    (window.innerWidth - 32) / W,
+    (window.innerHeight - 32) / H
+  );
+  canvas.style.width = (W * scale) + 'px';
+  canvas.style.height = (H * scale) + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// ============================================================
+// RETRO COLOR PALETTES
+// ============================================================
+const COLORS = {
+  bg: '#0f0f23',
+  darkBg: '#0a0a1a',
+  white: '#e0e0e0',
+  yellow: '#f0c040',
+  gold: '#d4a017',
+  orange: '#e07020',
+  red: '#c03030',
+  green: '#40b040',
+  darkGreen: '#207020',
+  blue: '#4080d0',
+  darkBlue: '#203060',
+  purple: '#8040c0',
+  cyan: '#40c0c0',
+  gray: '#606060',
+  darkGray: '#303030',
+  lightGray: '#909090',
+  black: '#000000',
+};
+
+// ============================================================
+// PIXEL FONT RENDERER (built-in, no external deps)
+// ============================================================
+// 5x7 pixel font for uppercase + digits + basic punctuation
+const FONT_CHARS = {
+  'A': [0x7C,0x12,0x11,0x12,0x7C],
+  'B': [0x7F,0x49,0x49,0x49,0x36],
+  'C': [0x3E,0x41,0x41,0x41,0x22],
+  'D': [0x7F,0x41,0x41,0x22,0x1C],
+  'E': [0x7F,0x49,0x49,0x49,0x41],
+  'F': [0x7F,0x09,0x09,0x09,0x01],
+  'G': [0x3E,0x41,0x49,0x49,0x3A],
+  'H': [0x7F,0x08,0x08,0x08,0x7F],
+  'I': [0x00,0x41,0x7F,0x41,0x00],
+  'J': [0x20,0x40,0x41,0x3F,0x01],
+  'K': [0x7F,0x08,0x14,0x22,0x41],
+  'L': [0x7F,0x40,0x40,0x40,0x40],
+  'M': [0x7F,0x02,0x0C,0x02,0x7F],
+  'N': [0x7F,0x04,0x08,0x10,0x7F],
+  'O': [0x3E,0x41,0x41,0x41,0x3E],
+  'P': [0x7F,0x09,0x09,0x09,0x06],
+  'Q': [0x3E,0x41,0x51,0x21,0x5E],
+  'R': [0x7F,0x09,0x19,0x29,0x46],
+  'S': [0x46,0x49,0x49,0x49,0x31],
+  'T': [0x01,0x01,0x7F,0x01,0x01],
+  'U': [0x3F,0x40,0x40,0x40,0x3F],
+  'V': [0x1F,0x20,0x40,0x20,0x1F],
+  'W': [0x3F,0x40,0x38,0x40,0x3F],
+  'X': [0x63,0x14,0x08,0x14,0x63],
+  'Y': [0x07,0x08,0x70,0x08,0x07],
+  'Z': [0x61,0x51,0x49,0x45,0x43],
+  '0': [0x3E,0x51,0x49,0x45,0x3E],
+  '1': [0x00,0x42,0x7F,0x40,0x00],
+  '2': [0x42,0x61,0x51,0x49,0x46],
+  '3': [0x21,0x41,0x45,0x4B,0x31],
+  '4': [0x18,0x14,0x12,0x7F,0x10],
+  '5': [0x27,0x45,0x45,0x45,0x39],
+  '6': [0x3C,0x4A,0x49,0x49,0x30],
+  '7': [0x01,0x71,0x09,0x05,0x03],
+  '8': [0x36,0x49,0x49,0x49,0x36],
+  '9': [0x06,0x49,0x49,0x29,0x1E],
+  ' ': [0x00,0x00,0x00,0x00,0x00],
+  '.': [0x00,0x60,0x60,0x00,0x00],
+  ',': [0x00,0x80,0x60,0x00,0x00],
+  '!': [0x00,0x00,0x4F,0x00,0x00],
+  '?': [0x02,0x01,0x51,0x09,0x06],
+  '-': [0x08,0x08,0x08,0x08,0x08],
+  ':': [0x00,0x36,0x36,0x00,0x00],
+  "'": [0x00,0x00,0x07,0x00,0x00],
+  '/': [0x20,0x10,0x08,0x04,0x02],
+  '(': [0x00,0x1C,0x22,0x41,0x00],
+  ')': [0x00,0x41,0x22,0x1C,0x00],
+  '+': [0x08,0x08,0x3E,0x08,0x08],
+  '=': [0x14,0x14,0x14,0x14,0x14],
+};
+
+function drawChar(ch, x, y, scale, color) {
+  const data = FONT_CHARS[ch.toUpperCase()];
+  if (!data) return;
+  ctx.fillStyle = color;
+  for (let col = 0; col < 5; col++) {
+    for (let row = 0; row < 7; row++) {
+      if (data[col] & (1 << row)) {
+        ctx.fillRect(x + col * scale, y + row * scale, scale, scale);
+      }
+    }
+  }
+}
+
+function drawText(text, x, y, scale, color, align) {
+  const charW = 6 * scale;
+  const totalW = text.length * charW;
+  let startX = x;
+  if (align === 'center') startX = x - totalW / 2;
+  else if (align === 'right') startX = x - totalW;
+  for (let i = 0; i < text.length; i++) {
+    drawChar(text[i], startX + i * charW, y, scale, color);
+  }
+}
+
+// Word-wrap text and draw multiple lines
+function drawTextWrapped(text, x, y, scale, color, maxWidth, lineHeight) {
+  const charW = 6 * scale;
+  const maxChars = Math.floor(maxWidth / charW);
+  const words = text.split(' ');
+  let line = '';
+  let lineY = y;
+
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (test.length > maxChars && line) {
+      drawText(line, x, lineY, scale, color, 'center');
+      lineY += lineHeight;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) {
+    drawText(line, x, lineY, scale, color, 'center');
+    lineY += lineHeight;
+  }
+  return lineY;
+}
+
+// ============================================================
+// PIXEL ART SPRITE DRAWING
+// ============================================================
+
+function drawPixelArt(data, x, y, pixelSize) {
+  for (let row = 0; row < data.length; row++) {
+    for (let col = 0; col < data[row].length; col++) {
+      if (data[row][col]) {
+        ctx.fillStyle = data[row][col];
+        ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+      }
+    }
+  }
+}
+
+// Character sprites (16x16 pixel art)
+const C = null; // transparent
+const SPRITES = {
+  milo: {
+    name: 'MILO',
+    desc: 'A CURIOUS BOY',
+    colors: { hair: '#4a3020', skin: '#f0b888', shirt: '#4080d0', pants: '#304080', shoes: '#302020' },
+    data: [
+      [C,C,C,C,C,'#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020',C,C,C,C,C],
+      [C,C,C,C,'#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020',C,C,C,C],
+      [C,C,C,'#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020','#4a3020',C,C,C,C],
+      [C,C,C,'#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888',C,C,C,C],
+      [C,C,C,'#f0b888','#000','#f0b888','#f0b888','#f0b888','#f0b888','#000','#f0b888','#f0b888',C,C,C,C],
+      [C,C,C,'#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888',C,C,C,C],
+      [C,C,C,'#f0b888','#f0b888','#f0b888','#c06060','#c06060','#f0b888','#f0b888','#f0b888','#f0b888',C,C,C,C],
+      [C,C,C,C,'#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888','#f0b888',C,C,C,C,C],
+      [C,C,C,C,C,'#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0',C,C,C,C,C],
+      [C,C,C,C,'#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0',C,C,C,C],
+      [C,C,C,'#f0b888','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#f0b888',C,C,C],
+      [C,C,C,'#f0b888','#f0b888','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#4080d0','#f0b888','#f0b888',C,C,C],
+      [C,C,C,C,C,'#304080','#304080','#304080','#304080','#304080','#304080',C,C,C,C,C],
+      [C,C,C,C,C,'#304080','#304080','#304080','#304080','#304080','#304080',C,C,C,C,C],
+      [C,C,C,C,C,'#304080','#304080',C,C,'#304080','#304080',C,C,C,C,C],
+      [C,C,C,C,'#302020','#302020',C,C,C,C,'#302020','#302020',C,C,C,C],
+    ],
+  },
+  tock: {
+    name: 'TOCK',
+    desc: 'THE WATCHDOG',
+    colors: {},
+    data: [
+      [C,C,C,C,C,C,'#d0a060','#d0a060','#d0a060',C,C,C,C,C,C,C],
+      [C,C,C,C,C,'#d0a060','#d0a060','#d0a060','#d0a060','#d0a060',C,C,C,C,C,C],
+      [C,C,C,C,C,'#d0a060','#000','#d0a060','#000','#d0a060',C,C,C,C,C,C],
+      [C,C,C,C,C,'#d0a060','#d0a060','#d0a060','#d0a060','#d0a060',C,C,C,C,C,C],
+      [C,C,C,C,C,'#d0a060','#d0a060','#302020','#d0a060','#d0a060',C,C,C,C,C,C],
+      [C,C,C,C,C,C,'#d0a060','#d0a060','#d0a060',C,C,C,C,C,C,C],
+      [C,C,'#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060',C,C,C],
+      [C,C,'#d0a060','#d0a060','#d0a060','#e0e0e0','#e0e0e0','#e0e0e0','#e0e0e0','#e0e0e0','#d0a060','#d0a060','#d0a060',C,C,C],
+      [C,C,'#d0a060','#d0a060','#e0e0e0','#e0e0e0','#000','#e0e0e0','#e0e0e0','#e0e0e0','#e0e0e0','#d0a060','#d0a060',C,C,C],
+      [C,C,'#d0a060','#d0a060','#e0e0e0','#e0e0e0','#e0e0e0','#000','#e0e0e0','#e0e0e0','#e0e0e0','#d0a060','#d0a060',C,C,C],
+      [C,C,'#d0a060','#d0a060','#e0e0e0','#e0e0e0','#e0e0e0','#e0e0e0','#000','#e0e0e0','#e0e0e0','#d0a060','#d0a060',C,C,C],
+      [C,C,'#d0a060','#d0a060','#d0a060','#e0e0e0','#e0e0e0','#e0e0e0','#e0e0e0','#e0e0e0','#d0a060','#d0a060','#d0a060',C,C,C],
+      [C,C,'#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060','#d0a060',C,C,C],
+      [C,C,C,'#d0a060',C,'#d0a060',C,C,C,'#d0a060',C,C,'#d0a060',C,C,C],
+      [C,C,C,'#d0a060',C,'#d0a060',C,C,C,'#d0a060',C,C,'#d0a060',C,C,C],
+      [C,C,'#302020','#302020',C,'#302020','#302020',C,'#302020','#302020',C,'#302020','#302020',C,C,C],
+    ],
+  },
+  humbug: {
+    name: 'HUMBUG',
+    desc: 'A LARGE BEETLE',
+    colors: {},
+    data: [
+      [C,C,C,C,C,C,'#2a5a2a',C,C,'#2a5a2a',C,C,C,C,C,C],
+      [C,C,C,C,C,'#2a5a2a','#2a5a2a',C,'#2a5a2a','#2a5a2a',C,C,C,C,C,C],
+      [C,C,C,C,C,C,'#2a5a2a','#2a5a2a','#2a5a2a',C,C,C,C,C,C,C],
+      [C,C,C,C,'#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a',C,C,C,C,C],
+      [C,C,C,'#2a5a2a','#2a5a2a','#e0e0e0','#2a5a2a','#2a5a2a','#2a5a2a','#e0e0e0','#2a5a2a','#2a5a2a',C,C,C,C],
+      [C,C,C,'#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a',C,C,C,C],
+      [C,C,C,C,'#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a','#2a5a2a',C,C,C,C,C],
+      [C,'#60a060',C,C,C,'#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a',C,C,C,'#60a060',C,C],
+      [C,C,'#60a060',C,'#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a',C,'#60a060',C,C,C],
+      [C,C,C,'#60a060','#4a3a2a','#705030','#4a3a2a','#705030','#4a3a2a','#705030','#4a3a2a','#60a060',C,C,C,C],
+      [C,C,C,C,'#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a',C,C,C,C,C],
+      [C,C,C,C,'#4a3a2a','#705030','#4a3a2a','#705030','#4a3a2a','#705030','#4a3a2a',C,C,C,C,C],
+      [C,C,C,C,'#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a','#4a3a2a',C,C,C,C,C],
+      [C,C,C,C,C,'#2a5a2a',C,'#2a5a2a',C,'#2a5a2a',C,C,C,C,C,C],
+      [C,C,C,C,'#2a5a2a',C,'#2a5a2a',C,'#2a5a2a',C,'#2a5a2a',C,C,C,C,C],
+      [C,C,C,'#302020',C,'#302020',C,'#302020',C,'#302020',C,'#302020',C,C,C,C],
+    ],
+  },
+};
+
+// Little red car sprite
+const CAR_SPRITE = [
+  [C,C,C,C,C,C,'#c03030','#c03030','#c03030','#c03030','#c03030',C,C,C,C,C],
+  [C,C,C,C,'#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030',C,C,C],
+  [C,C,C,'#c03030','#c03030','#c03030','#80c0e0','#80c0e0','#80c0e0','#c03030','#c03030','#c03030','#c03030','#c03030',C,C],
+  [C,C,'#c03030','#c03030','#c03030','#c03030','#80c0e0','#80c0e0','#80c0e0','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030',C],
+  [C,'#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030'],
+  ['#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030','#c03030'],
+  ['#a02020','#a02020','#e0e0e0','#e0e0e0','#a02020','#a02020','#a02020','#a02020','#a02020','#a02020','#a02020','#a02020','#a02020','#e0e0e0','#e0e0e0','#a02020'],
+  [C,C,'#303030','#303030',C,C,C,C,C,C,C,C,C,'#303030','#303030',C],
+];
+
+// ============================================================
+// SOUND ENGINE (simple beeps/boops)
+// ============================================================
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playTone(freq, duration, type = 'square', volume = 0.1) {
+  try {
+    const ctx = getAudio();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.value = volume;
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+  } catch (e) {}
+}
+
+function sfxSelect() { playTone(440, 0.1); playTone(660, 0.1); }
+function sfxConfirm() { setTimeout(() => playTone(523, 0.08), 0); setTimeout(() => playTone(659, 0.08), 80); setTimeout(() => playTone(784, 0.15), 160); }
+function sfxMove() { playTone(330, 0.05); }
+function sfxDrive() { playTone(80, 0.15, 'sawtooth', 0.04); }
+
+// ============================================================
+// GAME STATE
+// ============================================================
+let gameState = 'title';
+let selectedCharacter = 0; // 0=Milo, 1=Tock, 2=Humbug
+const characterKeys = ['milo', 'tock', 'humbug'];
+let transitionAlpha = 0;
+let transitionTarget = null;
+let frameCount = 0;
+let driveTimer = 0;
+let drivePhase = 0; // 0=driving, 1=sign appearing, 2=entering
+let signX = 0;
+let carX = 0;
+
+// Doldrums state
+let doldrumsEnergy = 0;
+let doldrumsTarget = 100;
+let doldrumsDrain = 0.15;
+let doldrumsClicks = [];
+let doldrumsGrayness = 1.0;
+let doldrumsWon = false;
+let doldrumsTimer = 0;
+let doldrumsMessage = '';
+let lethargarians = [];
+
+// Stars for title screen
+const stars = [];
+for (let i = 0; i < 60; i++) {
+  stars.push({ x: Math.random() * W, y: Math.random() * H, speed: 0.2 + Math.random() * 0.5, brightness: Math.random() });
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+const keys = {};
+let clickX = -1, clickY = -1;
+let clicked = false;
+
+window.addEventListener('keydown', (e) => {
+  keys[e.key] = true;
+  keys[e.code] = true;
+  handleInput(e.key, e.code);
+});
+window.addEventListener('keyup', (e) => {
+  keys[e.key] = false;
+  keys[e.code] = false;
+});
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  clickX = (e.clientX - rect.left) / (rect.width / W);
+  clickY = (e.clientY - rect.top) / (rect.height / H);
+  clicked = true;
+  handleClick(clickX, clickY);
+});
+
+function handleInput(key, code) {
+  if (gameState === 'title') {
+    if (key === 'Enter' || key === ' ') {
+      sfxConfirm();
+      transitionTo('summary');
+    }
+  } else if (gameState === 'summary') {
+    if (key === 'Enter' || key === ' ') {
+      sfxConfirm();
+      transitionTo('charselect');
+    }
+  } else if (gameState === 'charselect') {
+    if (key === 'ArrowLeft' || key === 'a') {
+      selectedCharacter = (selectedCharacter + 2) % 3;
+      sfxMove();
+    } else if (key === 'ArrowRight' || key === 'd') {
+      selectedCharacter = (selectedCharacter + 1) % 3;
+      sfxMove();
+    } else if (key === 'Enter' || key === ' ') {
+      sfxConfirm();
+      startDriving();
+    }
+  } else if (gameState === 'doldrums') {
+    if (key === ' ' || key === 'Enter') {
+      doldrumsThink();
+    }
+  }
+}
+
+function handleClick(x, y) {
+  if (gameState === 'title') {
+    sfxConfirm();
+    transitionTo('summary');
+  } else if (gameState === 'summary') {
+    sfxConfirm();
+    transitionTo('charselect');
+  } else if (gameState === 'charselect') {
+    // Check if clicking on a character
+    const charSpacing = 140;
+    const startX = W / 2 - charSpacing;
+    for (let i = 0; i < 3; i++) {
+      const cx = startX + i * charSpacing;
+      if (x > cx - 50 && x < cx + 50 && y > 100 && y < 240) {
+        if (selectedCharacter === i) {
+          sfxConfirm();
+          startDriving();
+        } else {
+          selectedCharacter = i;
+          sfxMove();
+        }
+        return;
+      }
+    }
+  } else if (gameState === 'doldrums') {
+    doldrumsThink();
+  }
+}
+
+// ============================================================
+// TRANSITIONS
+// ============================================================
+function transitionTo(state) {
+  transitionTarget = state;
+  transitionAlpha = 0;
+}
+
+function startDriving() {
+  transitionTarget = 'driving';
+  transitionAlpha = 0;
+  driveTimer = 0;
+  drivePhase = 0;
+  carX = -40;
+  signX = W + 100;
+}
+
+function startDoldrums() {
+  gameState = 'doldrums';
+  doldrumsEnergy = 0;
+  doldrumsWon = false;
+  doldrumsTimer = 0;
+  doldrumsMessage = 'YOU ENTER THE DOLDRUMS...';
+  doldrumsGrayness = 1.0;
+  doldrumsClicks = [];
+  // Create lethargarians
+  lethargarians = [];
+  for (let i = 0; i < 5; i++) {
+    lethargarians.push({
+      x: 60 + Math.random() * (W - 120),
+      y: 140 + Math.random() * 120,
+      frame: Math.random() * Math.PI * 2,
+      size: 8 + Math.random() * 4,
+    });
+  }
+}
+
+// ============================================================
+// DRAWING HELPERS
+// ============================================================
+function drawStars() {
+  for (const star of stars) {
+    const b = Math.sin(frameCount * 0.02 + star.brightness * 10) * 0.3 + 0.7;
+    const c = Math.floor(b * 180 + 40);
+    ctx.fillStyle = `rgb(${c},${c},${c})`;
+    ctx.fillRect(Math.floor(star.x), Math.floor(star.y), 2, 2);
+    star.y -= star.speed;
+    if (star.y < 0) { star.y = H; star.x = Math.random() * W; }
+  }
+}
+
+function drawRoad(scrollOffset) {
+  // Sky
+  ctx.fillStyle = '#2040a0';
+  ctx.fillRect(0, 0, W, 200);
+  // Ground
+  ctx.fillStyle = '#3a7a3a';
+  ctx.fillRect(0, 200, W, 120);
+  // Road
+  ctx.fillStyle = '#505050';
+  ctx.fillRect(0, 220, W, 70);
+  // Road lines (dashed)
+  ctx.fillStyle = '#f0c040';
+  const dashLen = 30;
+  const gapLen = 20;
+  const offset = (scrollOffset || 0) % (dashLen + gapLen);
+  for (let x = -offset; x < W; x += dashLen + gapLen) {
+    ctx.fillRect(x, 253, dashLen, 4);
+  }
+  // Road edges
+  ctx.fillStyle = '#e0e0e0';
+  ctx.fillRect(0, 218, W, 3);
+  ctx.fillRect(0, 289, W, 3);
+}
+
+function drawCar(x, y, bounce) {
+  const by = Math.sin(bounce) * 2;
+  drawPixelArt(CAR_SPRITE, x, y + by, 3);
+}
+
+function drawCharacterLarge(key, x, y) {
+  const sprite = SPRITES[key];
+  drawPixelArt(sprite.data, x - 24, y - 24, 3);
+}
+
+// ============================================================
+// SCREEN RENDERERS
+// ============================================================
+
+function renderTitle() {
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, W, H);
+  drawStars();
+
+  // Tollbooth icon (simple pixel arch)
+  const tollY = 60;
+  ctx.fillStyle = COLORS.yellow;
+  for (let i = 0; i < 40; i++) {
+    const angle = Math.PI * i / 39;
+    const px = W/2 - 20 + i;
+    const py = tollY - Math.sin(angle) * 20;
+    ctx.fillRect(px, py, 1, 3);
+  }
+  ctx.fillStyle = COLORS.gold;
+  ctx.fillRect(W/2 - 22, tollY, 4, 30);
+  ctx.fillRect(W/2 + 18, tollY, 4, 30);
+  ctx.fillStyle = COLORS.yellow;
+  ctx.fillRect(W/2 - 22, tollY - 2, 44, 4);
+  // Barrier arm
+  ctx.fillStyle = COLORS.red;
+  const armAngle = Math.sin(frameCount * 0.03) * 0.3;
+  for (let i = 0; i < 30; i++) {
+    ctx.fillRect(W/2 + 18 + Math.cos(armAngle) * i, tollY + 5 - Math.sin(armAngle) * i, 2, 3);
+  }
+
+  // Title text with glow
+  const pulse = Math.sin(frameCount * 0.04) * 0.3 + 0.7;
+  drawText('THE PHANTOM', W/2, 110, 3, COLORS.yellow, 'center');
+  drawText('TOLLBOOTH', W/2, 140, 3, COLORS.gold, 'center');
+
+  drawText('GAME', W/2, 175, 2, COLORS.orange, 'center');
+
+  // Blinking prompt
+  if (Math.floor(frameCount / 30) % 2 === 0) {
+    drawText('PRESS ENTER OR CLICK TO START', W/2, 260, 1, COLORS.white, 'center');
+  }
+
+  // Credits
+  drawText('BASED ON THE BOOK BY NORTON JUSTER', W/2, 300, 1, COLORS.gray, 'center');
+}
+
+function renderSummary() {
+  ctx.fillStyle = COLORS.darkBg;
+  ctx.fillRect(0, 0, W, H);
+
+  drawText('THE PHANTOM TOLLBOOTH', W/2, 15, 2, COLORS.yellow, 'center');
+
+  // Decorative line
+  ctx.fillStyle = COLORS.gold;
+  ctx.fillRect(W/2 - 100, 38, 200, 2);
+
+  const summary = 'THE PHANTOM TOLLBOOTH BY NORTON JUSTER IS A CLASSIC FANTASY NOVEL ABOUT MILO, A BORED YOUNG BOY WHO FEELS UNINTERESTED IN EVERYTHING. AFTER DISCOVERING A MAGICAL TOLLBOOTH IN HIS ROOM, HE TRAVELS TO THE KINGDOM OF WISDOM. AT FIRST, MILO DOES NOT HAVE A GOAL FOR HIS JOURNEY, BUT HE IS PRESSURED TO RESCUE THE PRINCESSES RHYME AND REASON, WHICH BECOMES HIS GOAL. ALONG THE WAY, HE CHANGES INTO A CURIOUS AND IMAGINATIVE PERSON. THE MAIN ANTAGONIST IS THE IDEA OF IGNORANCE, SHOWN THROUGH CREATURES THAT TRY TO STOP HIM. THE STORY TEACHES THE IMPORTANCE OF CURIOSITY AND LEARNING, AND IT HAS CREATIVE CHARACTERS LIKE THE SPELLING BEE AND THE ORCHESTRA OF COLOR.';
+
+  drawTextWrapped(summary, W/2, 52, 1, COLORS.white, W - 40, 14);
+
+  // Blinking prompt
+  if (Math.floor(frameCount / 30) % 2 === 0) {
+    drawText('PRESS ENTER OR CLICK TO CONTINUE', W/2, 296, 1, COLORS.cyan, 'center');
+  }
+}
+
+function renderCharSelect() {
+  ctx.fillStyle = COLORS.darkBg;
+  ctx.fillRect(0, 0, W, H);
+
+  drawText('CHOOSE YOUR AVATAR', W/2, 30, 2, COLORS.yellow, 'center');
+
+  const charSpacing = 140;
+  const startX = W / 2 - charSpacing;
+
+  for (let i = 0; i < 3; i++) {
+    const key = characterKeys[i];
+    const sprite = SPRITES[key];
+    const cx = startX + i * charSpacing;
+    const isSelected = i === selectedCharacter;
+
+    // Selection box
+    if (isSelected) {
+      const pulse = Math.sin(frameCount * 0.08) * 5;
+      ctx.strokeStyle = COLORS.yellow;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cx - 45 - pulse/2, 70 - pulse/2, 90 + pulse, 140 + pulse);
+      // Arrow
+      drawText('V', cx, 60, 1, COLORS.yellow, 'center');
+    }
+
+    // Character sprite (large)
+    drawCharacterLarge(key, cx, 120);
+
+    // Name
+    drawText(sprite.name, cx, 180, 2, isSelected ? COLORS.white : COLORS.gray, 'center');
+    drawText(sprite.desc, cx, 200, 1, isSelected ? COLORS.cyan : COLORS.darkGray, 'center');
+  }
+
+  drawText('< ARROW KEYS OR CLICK TO SELECT >', W/2, 240, 1, COLORS.lightGray, 'center');
+
+  if (Math.floor(frameCount / 30) % 2 === 0) {
+    drawText('PRESS ENTER TO BEGIN YOUR JOURNEY', W/2, 270, 1, COLORS.green, 'center');
+  }
+
+  // Show selected character's car preview
+  drawCar(W/2 - 24, 285, frameCount * 0.1);
+}
+
+function renderDriving() {
+  driveTimer++;
+  const scrollSpeed = 3;
+  const scrollOffset = driveTimer * scrollSpeed;
+
+  drawRoad(scrollOffset);
+
+  // Sky details - clouds
+  ctx.fillStyle = '#ffffff30';
+  for (let i = 0; i < 3; i++) {
+    const cx = ((i * 200 + 50) - scrollOffset * 0.3 + 2000) % (W + 100) - 50;
+    ctx.fillRect(cx, 40 + i * 30, 60, 12);
+    ctx.fillRect(cx + 10, 30 + i * 30, 40, 10);
+  }
+
+  // Hills in background
+  ctx.fillStyle = '#2a6a2a';
+  for (let x = 0; x < W; x++) {
+    const h = Math.sin((x + scrollOffset * 0.2) * 0.02) * 20 + Math.sin((x + scrollOffset * 0.2) * 0.005) * 30;
+    ctx.fillRect(x, 190 - h, 1, 10 + h);
+  }
+
+  if (drivePhase === 0) {
+    // Car driving across
+    carX = Math.min(carX + 2, W / 2 - 24);
+    drawCar(carX, 232, driveTimer * 0.15);
+    sfxDrive();
+
+    // Draw character on car
+    const key = characterKeys[selectedCharacter];
+    const sprite = SPRITES[key];
+    const by = Math.sin(driveTimer * 0.15) * 2;
+    drawPixelArt(sprite.data, carX + 10, 208 + by, 2);
+
+    if (driveTimer > 60) {
+      drivePhase = 1;
+    }
+  } else if (drivePhase === 1) {
+    // Sign appears
+    drawCar(W / 2 - 24, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    const sprite = SPRITES[key];
+    const by = Math.sin(driveTimer * 0.15) * 2;
+    drawPixelArt(sprite.data, W / 2 - 24 + 10, 208 + by, 2);
+
+    signX = Math.max(signX - 4, W / 2 - 80);
+
+    // Big sign
+    ctx.fillStyle = '#705030';
+    ctx.fillRect(signX - 5, 40, 170, 90);
+    ctx.fillStyle = '#f0d090';
+    ctx.fillRect(signX, 45, 160, 80);
+    // Sign posts
+    ctx.fillStyle = '#705030';
+    ctx.fillRect(signX + 30, 130, 8, 70);
+    ctx.fillRect(signX + 120, 130, 8, 70);
+
+    drawText('WELCOME TO', signX + 80, 55, 1, '#705030', 'center');
+    drawText('THE LANDS', signX + 80, 72, 2, '#8B4513', 'center');
+    drawText('BEYOND!', signX + 80, 95, 2, '#8B4513', 'center');
+
+    if (signX <= W / 2 - 80 && driveTimer > 150) {
+      drivePhase = 2;
+      driveTimer = 0;
+    }
+  } else if (drivePhase === 2) {
+    // Drive off screen toward doldrums
+    carX = W / 2 - 24 + driveTimer * 3;
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    const sprite = SPRITES[key];
+    const by = Math.sin(driveTimer * 0.15) * 2;
+    drawPixelArt(sprite.data, carX + 10, 208 + by, 2);
+
+    // Sign stays
+    ctx.fillStyle = '#705030';
+    ctx.fillRect(signX - 5, 40, 170, 90);
+    ctx.fillStyle = '#f0d090';
+    ctx.fillRect(signX, 45, 160, 80);
+    ctx.fillStyle = '#705030';
+    ctx.fillRect(signX + 30, 130, 8, 70);
+    ctx.fillRect(signX + 120, 130, 8, 70);
+    drawText('WELCOME TO', signX + 80, 55, 1, '#705030', 'center');
+    drawText('THE LANDS', signX + 80, 72, 2, '#8B4513', 'center');
+    drawText('BEYOND!', signX + 80, 95, 2, '#8B4513', 'center');
+
+    if (carX > W + 60) {
+      startDoldrums();
+    }
+  }
+}
+
+function renderDoldrums() {
+  doldrumsTimer++;
+
+  // Background - starts very gray, gets more colorful as you think
+  const gray = Math.max(0, 1 - doldrumsEnergy / doldrumsTarget);
+  doldrumsGrayness += (gray - doldrumsGrayness) * 0.05;
+  const g = doldrumsGrayness;
+
+  // Lerp between gray and colorful
+  const skyR = Math.floor(100 * g + 80 * (1-g));
+  const skyG = Math.floor(100 * g + 140 * (1-g));
+  const skyB = Math.floor(100 * g + 200 * (1-g));
+  ctx.fillStyle = `rgb(${skyR},${skyG},${skyB})`;
+  ctx.fillRect(0, 0, W, 200);
+
+  const gndR = Math.floor(120 * g + 60 * (1-g));
+  const gndG = Math.floor(120 * g + 140 * (1-g));
+  const gndB = Math.floor(120 * g + 60 * (1-g));
+  ctx.fillStyle = `rgb(${gndR},${gndG},${gndB})`;
+  ctx.fillRect(0, 200, W, 120);
+
+  // Energy drain
+  if (!doldrumsWon) {
+    doldrumsEnergy = Math.max(0, doldrumsEnergy - doldrumsDrain);
+  }
+
+  // Draw Lethargarians (lazy blob creatures)
+  for (const leth of lethargarians) {
+    leth.frame += 0.02;
+    const wobble = Math.sin(leth.frame) * 3;
+    const lethGray = Math.floor(140 * g + 100 * (1-g));
+    ctx.fillStyle = `rgb(${lethGray},${lethGray + 10},${lethGray})`;
+    // Body
+    ctx.beginPath();
+    ctx.ellipse(leth.x, leth.y + wobble, leth.size * 1.5, leth.size, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Sleepy eyes
+    ctx.fillStyle = `rgb(${Math.floor(80*g + 40*(1-g))},${Math.floor(80*g + 40*(1-g))},${Math.floor(80*g + 40*(1-g))})`;
+    ctx.fillRect(leth.x - 4, leth.y + wobble - 2, 3, 1);
+    ctx.fillRect(leth.x + 2, leth.y + wobble - 2, 3, 1);
+    // Zzz
+    if (g > 0.3) {
+      const zOff = Math.sin(leth.frame * 2) * 5;
+      drawText('Z', leth.x + leth.size + 4, leth.y - leth.size + zOff - 10, 1,
+        `rgba(${lethGray},${lethGray},${lethGray},${g})`, 'left');
+    }
+  }
+
+  // Draw "THINK!" click effects
+  for (let i = doldrumsClicks.length - 1; i >= 0; i--) {
+    const click = doldrumsClicks[i];
+    click.life--;
+    click.y -= 1;
+    const alpha = click.life / click.maxLife;
+    const c = Math.floor(200 + 55 * (1 - alpha));
+    drawText('THINK!', click.x, click.y, 1, `rgba(${c},${c},80,${alpha})`, 'center');
+    if (click.life <= 0) doldrumsClicks.splice(i, 1);
+  }
+
+  // Draw character
+  const key = characterKeys[selectedCharacter];
+  const sprite = SPRITES[key];
+  const charY = doldrumsWon ? 190 - Math.min(doldrumsTimer - (doldrumsWon ? doldrumsTimer : 0), 30) * 0 : 190;
+  drawPixelArt(sprite.data, W/2 - 24, charY, 3);
+
+  // Energy bar
+  ctx.fillStyle = '#303030';
+  ctx.fillRect(W/2 - 100, 20, 200, 16);
+  const barColor = doldrumsEnergy > 70 ? COLORS.green : doldrumsEnergy > 30 ? COLORS.yellow : COLORS.red;
+  ctx.fillStyle = barColor;
+  ctx.fillRect(W/2 - 98, 22, (doldrumsEnergy / doldrumsTarget) * 196, 12);
+  drawText('THINKING POWER', W/2, 10, 1, COLORS.white, 'center');
+
+  // Message
+  if (doldrumsTimer < 120) {
+    doldrumsMessage = 'YOU ENTER THE DOLDRUMS...';
+  } else if (doldrumsTimer < 200) {
+    doldrumsMessage = 'THINKING IS NOT ALLOWED HERE!';
+  } else if (!doldrumsWon) {
+    doldrumsMessage = 'CLICK OR PRESS SPACE TO THINK!';
+  }
+  drawText(doldrumsMessage, W/2, 290, 1, COLORS.white, 'center');
+
+  if (doldrumsTimer < 200) {
+    drawText('THE LETHARGARIANS DO NOTHING...', W/2, 305, 1, COLORS.gray, 'center');
+  }
+
+  // Check win
+  if (!doldrumsWon && doldrumsEnergy >= doldrumsTarget) {
+    doldrumsWon = true;
+    doldrumsMessage = 'YOU THOUGHT YOUR WAY OUT!';
+    doldrumsTimer = 0;
+    sfxConfirm();
+  }
+
+  if (doldrumsWon) {
+    drawText('YOU THOUGHT YOUR WAY OUT!', W/2, 290, 2, COLORS.green, 'center');
+    if (doldrumsTimer > 120) {
+      transitionTo('driving2');
+      driveTimer = 0;
+      drivePhase = 0;
+      carX = -40;
+      signX = W + 100;
+    }
+  }
+}
+
+function doldrumsThink() {
+  if (gameState !== 'doldrums' || doldrumsWon || doldrumsTimer < 200) return;
+  doldrumsEnergy = Math.min(doldrumsTarget, doldrumsEnergy + 8);
+  doldrumsClicks.push({
+    x: W/2 - 30 + Math.random() * 60,
+    y: 180,
+    life: 30,
+    maxLife: 30,
+  });
+  playTone(200 + doldrumsEnergy * 4, 0.05, 'sine', 0.08);
+}
+
+function renderDriving2() {
+  // Driving to Dictionopolis
+  driveTimer++;
+  const scrollSpeed = 3;
+  const scrollOffset = driveTimer * scrollSpeed;
+
+  drawRoad(scrollOffset);
+
+  // Brighter sky for Dictionopolis approach
+  ctx.fillStyle = '#3050b0';
+  ctx.fillRect(0, 0, W, 100);
+
+  // Clouds
+  ctx.fillStyle = '#ffffff30';
+  for (let i = 0; i < 3; i++) {
+    const cx = ((i * 200 + 50) - scrollOffset * 0.3 + 2000) % (W + 100) - 50;
+    ctx.fillRect(cx, 30 + i * 20, 60, 12);
+    ctx.fillRect(cx + 10, 22 + i * 20, 40, 10);
+  }
+
+  // Hills
+  ctx.fillStyle = '#2a6a2a';
+  for (let x = 0; x < W; x++) {
+    const h = Math.sin((x + scrollOffset * 0.2) * 0.02) * 20 + Math.sin((x + scrollOffset * 0.2) * 0.005) * 30;
+    ctx.fillRect(x, 190 - h, 1, 10 + h);
+  }
+
+  if (drivePhase === 0) {
+    carX = Math.min(carX + 2, W / 2 - 24);
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    if (driveTimer > 60) {
+      drivePhase = 1;
+    }
+  } else if (drivePhase === 1) {
+    drawCar(W / 2 - 24, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, W / 2 - 14, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    signX = Math.max(signX - 4, W / 2 - 80);
+
+    // Dictionopolis sign (fancier)
+    ctx.fillStyle = '#4a2a8a';
+    ctx.fillRect(signX - 5, 40, 170, 90);
+    ctx.fillStyle = '#e0d0f0';
+    ctx.fillRect(signX, 45, 160, 80);
+    ctx.fillStyle = '#4a2a8a';
+    ctx.fillRect(signX + 30, 130, 8, 70);
+    ctx.fillRect(signX + 120, 130, 8, 70);
+
+    drawText('WELCOME TO', signX + 80, 55, 1, '#4a2a8a', 'center');
+    drawText('DICTION-', signX + 80, 72, 2, '#6a3aba', 'center');
+    drawText('OPOLIS!', signX + 80, 95, 2, '#6a3aba', 'center');
+
+    if (signX <= W / 2 - 80 && driveTimer > 160) {
+      drivePhase = 2;
+      driveTimer = 0;
+    }
+  } else if (drivePhase === 2) {
+    carX = W / 2 - 24 + driveTimer * 3;
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    // Sign stays
+    ctx.fillStyle = '#4a2a8a';
+    ctx.fillRect(signX - 5, 40, 170, 90);
+    ctx.fillStyle = '#e0d0f0';
+    ctx.fillRect(signX, 45, 160, 80);
+    ctx.fillStyle = '#4a2a8a';
+    ctx.fillRect(signX + 30, 130, 8, 70);
+    ctx.fillRect(signX + 120, 130, 8, 70);
+    drawText('WELCOME TO', signX + 80, 55, 1, '#4a2a8a', 'center');
+    drawText('DICTION-', signX + 80, 72, 2, '#6a3aba', 'center');
+    drawText('OPOLIS!', signX + 80, 95, 2, '#6a3aba', 'center');
+
+    if (carX > W + 60) {
+      // TODO: transition to Level 1 - Word Market
+      transitionTo('wordmarket');
+    }
+  }
+}
+
+// ============================================================
+// LEVEL 1: WORD MARKET
+// ============================================================
+let wordMarketState = {};
+
+const WORD_PAIRS = [
+  { word: 'BRAVE', options: ['COURAGEOUS', 'TINY', 'SLOW'], answer: 0 },
+  { word: 'HAPPY', options: ['SAD', 'JOYFUL', 'HEAVY'], answer: 1 },
+  { word: 'BIG', options: ['SMALL', 'FAST', 'LARGE'], answer: 2 },
+  { word: 'SMART', options: ['CLEVER', 'LOUD', 'WET'], answer: 0 },
+  { word: 'FAST', options: ['HEAVY', 'BRIGHT', 'QUICK'], answer: 2 },
+  { word: 'COLD', options: ['WARM', 'CHILLY', 'TALL'], answer: 1 },
+  { word: 'ANGRY', options: ['CALM', 'SLEEPY', 'FURIOUS'], answer: 2 },
+  { word: 'QUIET', options: ['SILENT', 'LOUD', 'SHARP'], answer: 0 },
+  { word: 'OLD', options: ['NEW', 'ANCIENT', 'SMOOTH'], answer: 1 },
+  { word: 'SMALL', options: ['HUGE', 'BRIGHT', 'TINY'], answer: 2 },
+  { word: 'DARK', options: ['GLOOMY', 'SWEET', 'WIDE'], answer: 0 },
+  { word: 'PRETTY', options: ['UGLY', 'BEAUTIFUL', 'ROUGH'], answer: 1 },
+];
+
+function startWordMarket() {
+  wordMarketState = {
+    round: 0,
+    score: 0,
+    total: 8,
+    currentPairs: shuffleArray([...WORD_PAIRS]).slice(0, 8),
+    selected: -1,
+    feedback: '',
+    feedbackTimer: 0,
+    done: false,
+    introTimer: 0,
+    spellingBeeX: W - 60,
+    spellingBeeDir: 1,
+  };
+}
+
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function renderWordMarket() {
+  const wm = wordMarketState;
+  wm.introTimer++;
+
+  // Background - market stalls
+  ctx.fillStyle = '#2a1548';
+  ctx.fillRect(0, 0, W, H);
+
+  // Market stall backdrop
+  ctx.fillStyle = '#3a2058';
+  ctx.fillRect(20, 50, W - 40, H - 70);
+  ctx.fillStyle = '#4a2a6a';
+  ctx.fillRect(22, 52, W - 44, H - 74);
+
+  // Awning stripes at top
+  for (let i = 0; i < W - 40; i += 20) {
+    ctx.fillStyle = i % 40 === 0 ? '#c04040' : '#e0e040';
+    ctx.fillRect(20 + i, 40, 20, 14);
+  }
+
+  // Title
+  drawText('THE WORD MARKET', W/2, 8, 2, COLORS.yellow, 'center');
+  drawText('FIND THE SYNONYM!', W/2, 30, 1, COLORS.white, 'center');
+
+  // Score
+  drawText('SCORE: ' + wm.score + '/' + wm.total, W - 20, 8, 1, COLORS.green, 'right');
+
+  // Spelling Bee flying around
+  wm.spellingBeeX += wm.spellingBeeDir * 0.5;
+  if (wm.spellingBeeX > W - 30 || wm.spellingBeeX < 30) wm.spellingBeeDir *= -1;
+  const beeY = 60 + Math.sin(frameCount * 0.05) * 8;
+  // Bee body
+  ctx.fillStyle = '#f0d040';
+  ctx.fillRect(wm.spellingBeeX - 6, beeY, 12, 8);
+  ctx.fillStyle = '#302020';
+  ctx.fillRect(wm.spellingBeeX - 6, beeY + 3, 12, 2);
+  // Wings
+  ctx.fillStyle = '#ffffff80';
+  ctx.fillRect(wm.spellingBeeX - 8, beeY - 4, 6, 5);
+  ctx.fillRect(wm.spellingBeeX + 2, beeY - 4, 6, 5);
+
+  if (wm.done) {
+    drawText('WORD MARKET COMPLETE!', W/2, 120, 2, COLORS.yellow, 'center');
+    drawText('YOU GOT ' + wm.score + ' OUT OF ' + wm.total + '!', W/2, 155, 2, COLORS.white, 'center');
+    const msg = wm.score >= 6 ? 'EXCELLENT VOCABULARY!' : wm.score >= 4 ? 'GOOD JOB!' : 'KEEP LEARNING!';
+    drawText(msg, W/2, 185, 1, COLORS.green, 'center');
+    if (Math.floor(frameCount / 30) % 2 === 0) {
+      drawText('CLICK TO CONTINUE', W/2, 250, 1, COLORS.cyan, 'center');
+    }
+    return;
+  }
+
+  const pair = wm.currentPairs[wm.round];
+
+  // Word to match
+  drawText('WHICH WORD MEANS THE SAME AS:', W/2, 80, 1, COLORS.lightGray, 'center');
+  drawText(pair.word, W/2, 105, 3, COLORS.yellow, 'center');
+
+  // Options
+  const optionY = 155;
+  const optionSpacing = 45;
+  for (let i = 0; i < 3; i++) {
+    const y = optionY + i * optionSpacing;
+    const isHover = wm.selected === i;
+
+    // Option box
+    ctx.fillStyle = isHover ? '#5a3a7a' : '#3a2058';
+    ctx.fillRect(W/2 - 120, y - 5, 240, 30);
+    ctx.strokeStyle = isHover ? COLORS.yellow : '#6a4a8a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W/2 - 120, y - 5, 240, 30);
+
+    // Number + text
+    drawText((i + 1) + '. ' + pair.options[i], W/2, y + 3, 2, isHover ? COLORS.yellow : COLORS.white, 'center');
+  }
+
+  // Feedback
+  if (wm.feedbackTimer > 0) {
+    wm.feedbackTimer--;
+    const fbColor = wm.feedback === 'CORRECT!' ? COLORS.green : COLORS.red;
+    drawText(wm.feedback, W/2, 295, 2, fbColor, 'center');
+
+    if (wm.feedbackTimer === 0) {
+      wm.round++;
+      if (wm.round >= wm.total) {
+        wm.done = true;
+        sfxConfirm();
+      }
+    }
+  } else {
+    drawText('CLICK AN ANSWER OR PRESS 1, 2, 3', W/2, 300, 1, COLORS.gray, 'center');
+  }
+}
+
+function wordMarketAnswer(choice) {
+  const wm = wordMarketState;
+  if (wm.done || wm.feedbackTimer > 0) return;
+  const pair = wm.currentPairs[wm.round];
+  if (choice === pair.answer) {
+    wm.score++;
+    wm.feedback = 'CORRECT!';
+    sfxConfirm();
+  } else {
+    wm.feedback = 'NOT QUITE! IT WAS ' + pair.options[pair.answer];
+    playTone(150, 0.2, 'square', 0.08);
+  }
+  wm.feedbackTimer = 60;
+}
+
+// Add number key + click handling for word market
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'wordmarket' && !wordMarketState.done && wordMarketState.feedbackTimer === 0) {
+    if (e.key === '1') wordMarketAnswer(0);
+    else if (e.key === '2') wordMarketAnswer(1);
+    else if (e.key === '3') wordMarketAnswer(2);
+  }
+  if (gameState === 'wordmarket' && wordMarketState.done) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      sfxConfirm();
+      // TODO: transition to Chroma's Orchestra
+      transitionTo('driving3');
+      driveTimer = 0;
+      drivePhase = 0;
+      carX = -40;
+      signX = W + 100;
+    }
+  }
+});
+
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'wordmarket') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / (rect.width / W);
+  const my = (e.clientY - rect.top) / (rect.height / H);
+
+  if (wordMarketState.done) {
+    sfxConfirm();
+    transitionTo('driving3');
+    driveTimer = 0;
+    drivePhase = 0;
+    carX = -40;
+    signX = W + 100;
+    return;
+  }
+
+  if (wordMarketState.feedbackTimer > 0) return;
+
+  const optionY = 155;
+  const optionSpacing = 45;
+  for (let i = 0; i < 3; i++) {
+    const y = optionY + i * optionSpacing;
+    if (mx > W/2 - 120 && mx < W/2 + 120 && my > y - 5 && my < y + 25) {
+      wordMarketAnswer(i);
+      return;
+    }
+  }
+});
+
+// Mouse move for hover effect in word market
+canvas.addEventListener('mousemove', (e) => {
+  if (gameState !== 'wordmarket' || wordMarketState.done) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / (rect.width / W);
+  const my = (e.clientY - rect.top) / (rect.height / H);
+  wordMarketState.selected = -1;
+  const optionY = 155;
+  const optionSpacing = 45;
+  for (let i = 0; i < 3; i++) {
+    const y = optionY + i * optionSpacing;
+    if (mx > W/2 - 120 && mx < W/2 + 120 && my > y - 5 && my < y + 25) {
+      wordMarketState.selected = i;
+    }
+  }
+});
+
+// ============================================================
+// PLACEHOLDER SCREENS FOR FUTURE LEVELS
+// ============================================================
+
+function renderDriving3() {
+  // Driving to Chroma's Orchestra / Digitopolis
+  driveTimer++;
+  const scrollSpeed = 3;
+  const scrollOffset = driveTimer * scrollSpeed;
+
+  drawRoad(scrollOffset);
+
+  // Colorful sky for post-Dictionopolis
+  const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+  gradient.addColorStop(0, '#4060c0');
+  gradient.addColorStop(1, '#80a0e0');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, 200);
+
+  // Clouds
+  ctx.fillStyle = '#ffffff40';
+  for (let i = 0; i < 3; i++) {
+    const cx = ((i * 200 + 50) - scrollOffset * 0.3 + 2000) % (W + 100) - 50;
+    ctx.fillRect(cx, 30 + i * 20, 60, 12);
+  }
+
+  // Hills
+  ctx.fillStyle = '#2a6a2a';
+  for (let x = 0; x < W; x++) {
+    const h = Math.sin((x + scrollOffset * 0.2) * 0.02) * 20 + Math.sin((x + scrollOffset * 0.2) * 0.005) * 30;
+    ctx.fillRect(x, 190 - h, 1, 10 + h);
+  }
+
+  carX = Math.min(carX + 2, W / 2 - 24);
+  drawCar(carX, 232, driveTimer * 0.15);
+  const key = characterKeys[selectedCharacter];
+  drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+  drawText('ONWARD TO ADVENTURE...', W/2, 100, 2, COLORS.white, 'center');
+  drawText('MORE LEVELS COMING SOON!', W/2, 130, 1, COLORS.yellow, 'center');
+}
+
+// ============================================================
+// MAIN GAME LOOP
+// ============================================================
+function gameLoop() {
+  frameCount++;
+
+  // Handle transitions
+  if (transitionTarget) {
+    transitionAlpha += 0.04;
+    if (transitionAlpha >= 1) {
+      gameState = transitionTarget;
+      transitionTarget = null;
+      // Init new state
+      if (gameState === 'wordmarket') startWordMarket();
+    }
+  } else if (transitionAlpha > 0) {
+    transitionAlpha -= 0.04;
+  }
+
+  // Render current state
+  switch (gameState) {
+    case 'title': renderTitle(); break;
+    case 'summary': renderSummary(); break;
+    case 'charselect': renderCharSelect(); break;
+    case 'driving': renderDriving(); break;
+    case 'doldrums': renderDoldrums(); break;
+    case 'driving2': renderDriving2(); break;
+    case 'wordmarket': renderWordMarket(); break;
+    case 'driving3': renderDriving3(); break;
+  }
+
+  // Transition overlay
+  if (transitionAlpha > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.min(1, transitionAlpha)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Reset click state
+  clicked = false;
+  clickX = -1;
+  clickY = -1;
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Start!
+gameLoop();
+</script>
+</body>
+</html>
