@@ -425,7 +425,39 @@ function handleClick(x, y) {
       }
     }
   } else if (gameState === 'doldrums') {
-    doldrumsThink();
+    // Check if clicking on a Lethargarian
+    const LETH_QUOTES = [
+      'I WAS BUSY DOING NOTHING...',
+      'SHHH... IM NAPPING',
+      'DONT BOTHER ME...',
+      'I FORGOT WHAT I WAS DOING',
+      'MAYBE TOMORROW... OR NEVER',
+      'THINKING IS AGAINST THE LAW!',
+      'WHY DO ANYTHING AT ALL?',
+      'I HAD A PLAN ONCE... NAH',
+      'TOO TIRED TO BE TIRED',
+      'IS IT BEDTIME YET?',
+      'GO AWAY... IM DOING NOTHING',
+      'YAWN...',
+      'WHO NEEDS ADVENTURES?',
+      'EFFORT IS OVERRATED',
+      'I USED TO CARE... BUT I FORGOT',
+    ];
+    let clickedLeth = false;
+    for (const leth of lethargarians) {
+      const dx = x - leth.x;
+      const dy = y - leth.y;
+      if (Math.abs(dx) < leth.size * 2 && Math.abs(dy) < leth.size * 2) {
+        leth.speech = LETH_QUOTES[Math.floor(Math.random() * LETH_QUOTES.length)];
+        leth.speechTimer = 100;
+        playTone(120, 0.1, 'sine', 0.04);
+        clickedLeth = true;
+        break;
+      }
+    }
+    if (!clickedLeth) {
+      doldrumsThink();
+    }
   }
 }
 
@@ -462,6 +494,8 @@ function startDoldrums() {
       y: 140 + Math.random() * 120,
       frame: Math.random() * Math.PI * 2,
       size: 8 + Math.random() * 4,
+      speech: '',
+      speechTimer: 0,
     });
   }
 }
@@ -863,10 +897,25 @@ function renderDoldrums() {
     ctx.fillRect(leth.x - 4, leth.y + wobble - 2, 3, 1);
     ctx.fillRect(leth.x + 2, leth.y + wobble - 2, 3, 1);
     // Zzz
-    if (g > 0.3) {
+    if (g > 0.3 && leth.speechTimer <= 0) {
       const zOff = Math.sin(leth.frame * 2) * 5;
       drawText('Z', leth.x + leth.size + 4, leth.y - leth.size + zOff - 10, 1,
         `rgba(${lethGray},${lethGray},${lethGray},${g})`, 'left');
+    }
+    // Speech bubble when clicked
+    if (leth.speechTimer > 0) {
+      leth.speechTimer--;
+      const bubbleW = leth.speech.length * 6 + 16;
+      const bubbleX = leth.x;
+      const bubbleY = leth.y - leth.size - 22 + wobble;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bubbleX - bubbleW/2, bubbleY - 10, bubbleW, 18);
+      ctx.strokeStyle = '#404040';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bubbleX - bubbleW/2, bubbleY - 10, bubbleW, 18);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bubbleX - 3, bubbleY + 8, 6, 5);
+      drawText(leth.speech, bubbleX, bubbleY - 5, 1, '#404040', 'center');
     }
   }
 
@@ -1812,21 +1861,19 @@ function renderDriving4() {
 }
 
 // ============================================================
-// LEVEL 2: THE NUMBER MINE
+// LEVEL 2: MINE CART RIDE
 // ============================================================
-let numberMineState = {};
+let mineCartState = {};
+
 
 function generateMathProblem(round) {
-  // Start easy, get slightly harder
-  let a, b, op, answer, opSymbol;
-  if (round < 3) {
-    // Easy addition
+  let a, b, op, answer;
+  if (round < 2) {
     a = Math.floor(Math.random() * 10) + 1;
     b = Math.floor(Math.random() * 10) + 1;
     op = '+';
     answer = a + b;
-  } else if (round < 6) {
-    // Mix of addition and subtraction
+  } else if (round < 4) {
     if (Math.random() < 0.5) {
       a = Math.floor(Math.random() * 15) + 5;
       b = Math.floor(Math.random() * 10) + 1;
@@ -1839,7 +1886,6 @@ function generateMathProblem(round) {
       answer = a - b;
     }
   } else {
-    // Harder addition and subtraction
     if (Math.random() < 0.5) {
       a = Math.floor(Math.random() * 30) + 10;
       b = Math.floor(Math.random() * 20) + 5;
@@ -1853,14 +1899,13 @@ function generateMathProblem(round) {
     }
   }
 
-  // Generate wrong answers that are close to the real answer
+  // Generate 2 wrong answers close to the real one
   const wrongs = new Set();
   while (wrongs.size < 2) {
     let w = answer + (Math.floor(Math.random() * 7) - 3);
     if (w !== answer && w >= 0) wrongs.add(w);
   }
   const options = [answer, ...wrongs];
-  // Shuffle options
   for (let i = options.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [options[i], options[j]] = [options[j], options[i]];
@@ -1875,296 +1920,342 @@ function generateMathProblem(round) {
 }
 
 function startNumberMine() {
-  const problem = generateMathProblem(0);
-  numberMineState = {
+  mineCartState = {
     round: 0,
-    total: 8,
+    total: 5,
     score: 0,
-    problem: problem,
-    selected: -1,
-    feedback: '',
-    feedbackTimer: 0,
-    done: false,
-    introTimer: 0,
-    pickaxeAngle: 0,
-    gems: [],         // sparkle effects when correct
-    depth: 0,         // how deep we've mined (visual)
-    collectedGems: [], // gems found so far {color, shape}
+    problem: generateMathProblem(0),
+    phase: 'intro',       // intro, rolling, choosing, feedback, done
+    phaseTimer: 0,
+    cartX: W / 2,
+    cartY: 220,
+    trackScroll: 0,       // scrolling track offset
+    speed: 2,
+    shakeX: 0,
+    shakeY: 0,
+    targetTrack: -1,      // which track the cart is heading to (0,1,2)
+    chosenTrack: -1,
+    forkProgress: 0,      // 0-1 animation into the chosen fork
+    crashed: false,
+    crashTimer: 0,
+    gems: [],             // collected gem names
+    sparkles: [],         // visual sparkle effects
+    tunnelColors: ['#e04040', '#40c040', '#4080e0'],
   };
 }
 
 function renderNumberMine() {
-  const nm = numberMineState;
-  nm.introTimer++;
-  nm.pickaxeAngle += 0.03;
+  const mc = mineCartState;
+  mc.phaseTimer++;
+  mc.trackScroll += mc.speed;
 
   // Underground cave background
-  const depthShade = Math.min(nm.depth * 8, 40);
-  ctx.fillStyle = `rgb(${40 - depthShade},${30 - depthShade},${20 - depthShade})`;
+  ctx.fillStyle = '#1a1210';
   ctx.fillRect(0, 0, W, H);
 
-  // Rocky cave walls
-  ctx.fillStyle = '#4a3a2a';
-  // Left wall
-  for (let y = 0; y < H; y += 8) {
-    const w = 20 + Math.sin(y * 0.1 + nm.depth) * 10;
-    ctx.fillRect(0, y, w, 8);
-  }
-  // Right wall
-  for (let y = 0; y < H; y += 8) {
-    const w = 20 + Math.sin(y * 0.13 + nm.depth + 2) * 10;
-    ctx.fillRect(W - w, y, w, 8);
-  }
-  // Ceiling stalactites
-  for (let x = 30; x < W - 30; x += 25) {
-    const h = 15 + Math.sin(x * 0.2) * 10;
-    ctx.fillStyle = '#3a2a1a';
-    ctx.fillRect(x, 0, 8, h);
-    ctx.fillRect(x + 2, h, 4, 5);
+  // Cave walls
+  ctx.fillStyle = '#3a2a1a';
+  for (let y = 0; y < H; y += 10) {
+    const wl = 15 + Math.sin((y + mc.trackScroll * 0.3) * 0.08) * 8;
+    const wr = 15 + Math.sin((y + mc.trackScroll * 0.3) * 0.1 + 2) * 8;
+    ctx.fillRect(0, y, wl, 10);
+    ctx.fillRect(W - wr, y, wr, 10);
   }
 
-  // Embedded gems/crystals in walls (decoration)
-  const gemColors = ['#e04040', '#40e040', '#4080e0', '#e0e040', '#e040e0'];
-  for (let i = 0; i < 8; i++) {
-    const gx = (i * 73 + 15 + nm.depth * 3) % (W - 60) + 30;
-    const gy = (i * 47 + 20) % (H - 60) + 30;
-    const gc = gemColors[i % gemColors.length];
+  // Ceiling with stalactites
+  ctx.fillStyle = '#2a1a0a';
+  ctx.fillRect(0, 0, W, 25);
+  for (let x = 10; x < W - 10; x += 30) {
+    const h = 10 + Math.sin(x * 0.15 + mc.trackScroll * 0.01) * 8;
+    ctx.fillRect(x, 20, 6, h);
+  }
+
+  // Gem sparkles in walls
+  const gemWallColors = ['#e04040', '#40e040', '#4080e0', '#e0e040', '#e040e0'];
+  for (let i = 0; i < 6; i++) {
+    const gx = (i * 97 + mc.trackScroll * 0.5) % (W - 40) + 20;
+    const gy = (i * 53) % (H - 80) + 40;
     const sparkle = Math.sin(frameCount * 0.05 + i * 2) * 0.3 + 0.7;
-    ctx.fillStyle = gc + Math.floor(sparkle * 99).toString(16).padStart(2, '0');
-    ctx.fillRect(gx, gy, 5, 5);
-    ctx.fillStyle = '#ffffff40';
-    ctx.fillRect(gx + 1, gy + 1, 2, 2);
+    ctx.fillStyle = gemWallColors[i % gemWallColors.length] + Math.floor(sparkle * 60).toString(16).padStart(2, '0');
+    ctx.fillRect(gx, gy, 4, 4);
   }
 
-  // Ground/floor
-  ctx.fillStyle = '#5a4a3a';
-  ctx.fillRect(30, H - 30, W - 60, 30);
-  ctx.fillStyle = '#6a5a4a';
-  ctx.fillRect(30, H - 30, W - 60, 4);
+  // Draw tracks — simple horizontal ties scrolling left with two rail lines
+  const trackY = mc.cartY + 20;
+  const tieSpacing = 16;
+  const tieOffset = mc.trackScroll % tieSpacing;
 
-  // Gem sparkle effects
-  for (let i = nm.gems.length - 1; i >= 0; i--) {
-    const gem = nm.gems[i];
-    gem.life--;
-    gem.y -= 1.5;
-    gem.x += gem.dx;
-    const alpha = gem.life / gem.maxLife;
-    ctx.fillStyle = gem.color;
-    ctx.globalAlpha = alpha;
-    ctx.fillRect(gem.x - 3, gem.y - 3, 6, 6);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(gem.x - 1, gem.y - 1, 2, 2);
+  // Wooden ties (sleepers) — scroll horizontally
+  ctx.fillStyle = '#5a4030';
+  for (let i = -1; i < Math.ceil(W / tieSpacing) + 1; i++) {
+    const tx = i * tieSpacing - tieOffset;
+    ctx.fillRect(tx, trackY + 2, 8, 18);
+  }
+
+  // Two rail lines on top
+  ctx.fillStyle = '#909090';
+  ctx.fillRect(0, trackY, W, 3);
+  ctx.fillRect(0, trackY + 17, W, 3);
+
+  // Sparkle effects
+  for (let i = mc.sparkles.length - 1; i >= 0; i--) {
+    const sp = mc.sparkles[i];
+    sp.life--;
+    sp.x += sp.vx;
+    sp.y += sp.vy;
+    ctx.fillStyle = sp.color;
+    ctx.globalAlpha = sp.life / sp.maxLife;
+    ctx.fillRect(sp.x - 2, sp.y - 2, 4, 4);
     ctx.globalAlpha = 1;
-    if (gem.life <= 0) nm.gems.splice(i, 1);
+    if (sp.life <= 0) mc.sparkles.splice(i, 1);
   }
 
-  // Pickaxe on the right side (animated)
-  const pxX = W - 65;
-  const pxY = 200;
-  const swing = Math.sin(nm.pickaxeAngle) * 0.4;
-  // Handle
-  ctx.fillStyle = '#8a6a40';
-  for (let i = 0; i < 25; i++) {
-    ctx.fillRect(pxX - Math.sin(swing) * i, pxY + Math.cos(swing) * i, 3, 3);
-  }
-  // Head
-  const headX = pxX - Math.sin(swing) * 25;
-  const headY = pxY + Math.cos(swing) * 25;
-  ctx.fillStyle = '#808080';
-  ctx.fillRect(headX - 8, headY - 2, 16, 6);
-  ctx.fillStyle = '#a0a0a0';
-  ctx.fillRect(headX - 10, headY - 1, 4, 4);
+  // HUD
+  drawText('MINE CART RIDE', W/2, 5, 2, COLORS.yellow, 'center');
+  drawText('ROUND ' + Math.min(mc.round + 1, mc.total) + '/' + mc.total, W - 20, 8, 1, COLORS.lightGray, 'right');
 
-  // Title
-  drawText('THE NUMBER MINE', W/2, 8, 2, COLORS.yellow, 'center');
-  drawText('DIG FOR THE RIGHT ANSWER!', W/2, 28, 1, COLORS.white, 'center');
-
-  // Score
-  drawText('SCORE: ' + nm.score + '/' + nm.total, W - 20, 8, 1, COLORS.green, 'right');
-
-  // Depth indicator
-  drawText('DEPTH: ' + (nm.depth * 10) + ' FT', 20, 42, 1, COLORS.lightGray, 'left');
-
-  // Collected gems display — show each gem with its name
-  if (nm.collectedGems.length > 0) {
-    // Background panel
-    const panelW = nm.collectedGems.length * 52 + 16;
-    const panelX = W/2 - panelW/2;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(panelX, H - 50, panelW, 46);
-    ctx.strokeStyle = '#6a5a4a';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(panelX, H - 50, panelW, 46);
-    drawText('GEMS FOUND', W/2, H - 48, 1, COLORS.gold, 'center');
-
-    for (let i = 0; i < nm.collectedGems.length; i++) {
-      const g = nm.collectedGems[i];
-      const gx = panelX + 12 + i * 52 + 18;
-      const gy = H - 26;
-      const bob = Math.sin(frameCount * 0.04 + i * 0.8) * 1.5;
-
-      // Glow behind gem
-      ctx.fillStyle = g.color + '40';
+  // Collected gems display
+  if (mc.gems.length > 0) {
+    const GEM_DISPLAY = {
+      'RUBY': '#e02020', 'EMERALD': '#20c040', 'SAPPHIRE': '#2060e0',
+      'DIAMOND': '#c0e0ff', 'AMETHYST': '#a040e0', 'TOPAZ': '#e0a020',
+    };
+    for (let i = 0; i < mc.gems.length; i++) {
+      const gname = mc.gems[i];
+      const gc = GEM_DISPLAY[gname] || '#e0e0e0';
+      ctx.fillStyle = gc;
       ctx.beginPath();
-      ctx.arc(gx, gy + bob, 12, 0, Math.PI * 2);
+      const gx = 15 + i * 18;
+      ctx.moveTo(gx, 22);
+      ctx.lineTo(gx + 5, 28);
+      ctx.lineTo(gx, 34);
+      ctx.lineTo(gx - 5, 28);
+      ctx.closePath();
       ctx.fill();
-
-      // Gem shape
-      ctx.fillStyle = g.color;
-      if (g.shape === 'diamond') {
-        ctx.beginPath();
-        ctx.moveTo(gx, gy - 8 + bob);
-        ctx.lineTo(gx + 6, gy + bob);
-        ctx.lineTo(gx, gy + 8 + bob);
-        ctx.lineTo(gx - 6, gy + bob);
-        ctx.closePath();
-        ctx.fill();
-      } else if (g.shape === 'oval') {
-        ctx.beginPath();
-        ctx.ellipse(gx, gy + bob, 7, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (g.shape === 'rect') {
-        ctx.fillRect(gx - 6, gy - 4 + bob, 12, 8);
-      } else if (g.shape === 'octagon') {
-        ctx.beginPath();
-        ctx.moveTo(gx - 3, gy - 7 + bob);
-        ctx.lineTo(gx + 3, gy - 7 + bob);
-        ctx.lineTo(gx + 7, gy - 3 + bob);
-        ctx.lineTo(gx + 7, gy + 3 + bob);
-        ctx.lineTo(gx + 3, gy + 7 + bob);
-        ctx.lineTo(gx - 3, gy + 7 + bob);
-        ctx.lineTo(gx - 7, gy + 3 + bob);
-        ctx.lineTo(gx - 7, gy - 3 + bob);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Sparkle highlight
-      ctx.fillStyle = '#ffffff80';
-      ctx.fillRect(gx - 2, gy - 3 + bob, 3, 3);
-
-      // Gem name below
-      drawText(g.name, gx, gy + 12, 1, g.color, 'center');
+      ctx.fillStyle = '#ffffff40';
+      ctx.fillRect(gx - 2, 24, 2, 2);
     }
   }
 
-  if (nm.done) {
+  // Draw mine cart with character
+  const shakeX = mc.shakeX * (Math.random() - 0.5);
+  const shakeY = mc.shakeY * (Math.random() - 0.5);
+  mc.shakeX *= 0.9;
+  mc.shakeY *= 0.9;
+
+  const cartDrawX = mc.cartX - 24 + shakeX;
+  const cartDrawY = mc.cartY - 10 + shakeY;
+
+  // Cart body
+  ctx.fillStyle = '#705030';
+  ctx.fillRect(cartDrawX - 4, cartDrawY + 4, 48, 20);
+  ctx.fillStyle = '#8a6840';
+  ctx.fillRect(cartDrawX - 2, cartDrawY + 6, 44, 16);
+  // Wheels
+  ctx.fillStyle = '#404040';
+  ctx.fillRect(cartDrawX + 2, cartDrawY + 22, 8, 8);
+  ctx.fillRect(cartDrawX + 30, cartDrawY + 22, 8, 8);
+  ctx.fillStyle = '#606060';
+  ctx.fillRect(cartDrawX + 4, cartDrawY + 24, 4, 4);
+  ctx.fillRect(cartDrawX + 32, cartDrawY + 24, 4, 4);
+
+  // Character riding in cart
+  const key = characterKeys[selectedCharacter];
+  const bounce = Math.sin(mc.trackScroll * 0.1) * 2;
+  drawPixelArt(SPRITES[key].data, cartDrawX + 4 + shakeX, cartDrawY - 28 + bounce + shakeY, 2);
+
+  if (mc.phase === 'intro') {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 100, W, 80);
-    drawText('MINE COMPLETE!', W/2, 115, 3, COLORS.yellow, 'center');
-    drawText('YOU DUG UP ' + nm.score + ' OUT OF ' + nm.total + ' GEMS!', W/2, 150, 1, COLORS.white, 'center');
-    const msg = nm.score >= 7 ? 'MASTER MATHEMATICIAN!' : nm.score >= 5 ? 'GOOD DIGGING!' : 'KEEP PRACTICING!';
-    drawText(msg, W/2, 168, 1, COLORS.green, 'center');
+    ctx.fillRect(W/2 - 180, 60, 360, 120);
+    drawText('THE MINE CART RIDE!', W/2, 72, 2, COLORS.yellow, 'center');
+    drawText('YOUR CART APPROACHES FORKS', W/2, 98, 1, COLORS.white, 'center');
+    drawText('IN THE TRACK. SOLVE THE MATH', W/2, 114, 1, COLORS.white, 'center');
+    drawText('TO PICK THE RIGHT TUNNEL!', W/2, 130, 1, COLORS.white, 'center');
+    drawText('CLICK OR PRESS 1, 2, 3', W/2, 154, 1, COLORS.lightGray, 'center');
+
+    if (mc.phaseTimer > 240) {
+      mc.phase = 'rolling';
+      mc.phaseTimer = 0;
+    }
+  } else if (mc.phase === 'rolling') {
+    // Rolling along... approaching a fork
+    drawText('FORK AHEAD!', W/2, 50, 1, COLORS.orange, 'center');
+
+    if (mc.phaseTimer > 50) {
+      mc.phase = 'choosing';
+      mc.phaseTimer = 0;
+    }
+  } else if (mc.phase === 'choosing') {
+    // Show the math problem and 3 tunnel options
+    const prob = mc.problem;
+
+    // Problem display
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(W/2 - 110, 45, 220, 35);
+    drawText(prob.text, W/2, 55, 3, COLORS.yellow, 'center');
+
+    // Three tunnels with forking tracks
+    const tunnelY = 110;
+    const tunnelSpacing = 140;
+    const tunnelStartX = W/2 - tunnelSpacing;
+    const forkStartY = mc.cartY - 5; // where tracks start forking from
+
+    // Draw forking tracks from cart up to each tunnel
+    for (let i = 0; i < 3; i++) {
+      const tx = tunnelStartX + i * tunnelSpacing;
+      const isHover = mc.targetTrack === i;
+
+      // Track line from cart to tunnel (curved fork)
+      ctx.strokeStyle = isHover ? mc.tunnelColors[i] : '#606060';
+      ctx.lineWidth = isHover ? 4 : 2;
+      ctx.beginPath();
+      ctx.moveTo(W/2, forkStartY);
+      ctx.quadraticCurveTo(W/2 + (tx - W/2) * 0.3, forkStartY - 50, tx, tunnelY + 55);
+      ctx.stroke();
+
+      // Tie marks along the track
+      ctx.fillStyle = '#5a4030';
+      for (let t = 0.2; t < 1; t += 0.15) {
+        const px = W/2 + (tx - W/2) * t * t;
+        const py = forkStartY + (tunnelY + 55 - forkStartY) * t;
+        ctx.fillRect(px - 4, py, 8, 2);
+      }
+    }
+
+    // Draw tunnels on top of tracks
+    for (let i = 0; i < 3; i++) {
+      const tx = tunnelStartX + i * tunnelSpacing;
+      const isHover = mc.targetTrack === i;
+
+      // Tunnel light above (colored signal)
+      const lightPulse = Math.sin(frameCount * 0.08 + i * 2) * 0.3 + 0.7;
+      ctx.fillStyle = mc.tunnelColors[i];
+      ctx.globalAlpha = isHover ? 1 : lightPulse * 0.5;
+      ctx.fillRect(tx - 4, tunnelY - 12, 8, 8);
+      ctx.globalAlpha = 1;
+
+      // Tunnel stone frame
+      ctx.fillStyle = isHover ? mc.tunnelColors[i] : '#4a3a2a';
+      ctx.beginPath();
+      ctx.arc(tx, tunnelY + 30, 40, Math.PI, 0);
+      ctx.fillRect(tx - 40, tunnelY + 30, 80, 28);
+      ctx.fill();
+
+      // Tunnel dark interior
+      ctx.fillStyle = '#080606';
+      ctx.beginPath();
+      ctx.arc(tx, tunnelY + 30, 32, Math.PI, 0);
+      ctx.fillRect(tx - 32, tunnelY + 30, 64, 24);
+      ctx.fill();
+
+      // Number inside tunnel (big and clear)
+      drawText('' + prob.options[i], tx, tunnelY + 22, 3, isHover ? COLORS.yellow : COLORS.white, 'center');
+
+      // Key hint below tunnel
+      ctx.fillStyle = isHover ? mc.tunnelColors[i] : '#808080';
+      ctx.fillRect(tx - 12, tunnelY + 56, 24, 14);
+      drawText('(' + (i + 1) + ')', tx, tunnelY + 58, 1, isHover ? '#ffffff' : '#c0c0c0', 'center');
+    }
+
+    // Prompt
+    const promptPulse = Math.sin(frameCount * 0.06) > 0 ? COLORS.white : COLORS.yellow;
+    drawText('PICK A TUNNEL!', W/2, tunnelY - 22, 2, promptPulse, 'center');
+
+  } else if (mc.phase === 'feedback') {
+    if (mc.crashed) {
+      // Crash animation
+      mc.shakeX = 5;
+      mc.shakeY = 3;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(W/2 - 120, 80, 240, 50);
+      drawText('WRONG TUNNEL!', W/2, 92, 2, COLORS.red, 'center');
+      drawText('ANSWER WAS: ' + mc.problem.answer, W/2, 116, 1, COLORS.white, 'center');
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(W/2 - 120, 80, 240, 50);
+      drawText('CORRECT!', W/2, 92, 2, COLORS.green, 'center');
+      const lastGem = mc.gems[mc.gems.length - 1];
+      if (lastGem) {
+        drawText('YOU FOUND A ' + lastGem + '!', W/2, 116, 1, COLORS.yellow, 'center');
+      }
+    }
+
+    if (mc.phaseTimer > 80) {
+      mc.round++;
+      if (mc.round >= mc.total) {
+        mc.phase = 'done';
+        mc.phaseTimer = 0;
+      } else {
+        mc.problem = generateMathProblem(mc.round);
+        mc.phase = 'rolling';
+        mc.phaseTimer = 0;
+        mc.targetTrack = -1;
+        mc.chosenTrack = -1;
+        mc.crashed = false;
+      }
+    }
+  } else if (mc.phase === 'done') {
+    mc.speed = Math.max(0, mc.speed - 0.02); // slow to a stop
+
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 70, W, 100);
+    drawText('RIDE COMPLETE!', W/2, 85, 3, COLORS.yellow, 'center');
+    drawText('YOU FOUND ' + mc.score + ' OUT OF ' + mc.total + ' GEMS!', W/2, 120, 1, COLORS.white, 'center');
+    const msg = mc.score >= 4 ? 'MASTER MATHEMATICIAN!' : mc.score >= 3 ? 'GOOD RIDING!' : 'KEEP PRACTICING!';
+    drawText(msg, W/2, 140, 1, COLORS.green, 'center');
+
     if (Math.floor(frameCount / 30) % 2 === 0) {
       drawText('CLICK TO CONTINUE', W/2, 250, 1, COLORS.cyan, 'center');
     }
-    return;
-  }
-
-  // Math problem
-  const prob = nm.problem;
-
-  // Problem display — like carved in rock
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(W/2 - 100, 60, 200, 40);
-  ctx.strokeStyle = '#6a5a4a';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(W/2 - 100, 60, 200, 40);
-  drawText(prob.text, W/2, 72, 3, COLORS.yellow, 'center');
-
-  // Answer options — like gems to dig up
-  const optionY = 130;
-  const optionSpacing = 50;
-  for (let i = 0; i < 3; i++) {
-    const y = optionY + i * optionSpacing;
-    const isHover = nm.selected === i;
-
-    // Gem-shaped option
-    ctx.fillStyle = isHover ? '#5a4a3a' : '#3a2a1a';
-    ctx.fillRect(W/2 - 80, y - 5, 160, 35);
-    ctx.strokeStyle = isHover ? COLORS.yellow : '#6a5a4a';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(W/2 - 80, y - 5, 160, 35);
-
-    // Gem icon
-    const gemC = ['#e04040', '#40e040', '#4080e0'][i];
-    ctx.fillStyle = gemC;
-    ctx.fillRect(W/2 - 65, y + 5, 10, 10);
-    ctx.fillStyle = '#ffffff40';
-    ctx.fillRect(W/2 - 63, y + 7, 4, 4);
-
-    // Number
-    drawText('' + prob.options[i], W/2 + 10, y + 5, 2, isHover ? COLORS.yellow : COLORS.white, 'center');
-  }
-
-  // Feedback
-  if (nm.feedbackTimer > 0) {
-    nm.feedbackTimer--;
-    const fbColor = nm.feedback === 'CORRECT!' ? COLORS.green : COLORS.red;
-    drawText(nm.feedback, W/2, 295, 2, fbColor, 'center');
-
-    if (nm.feedbackTimer === 0) {
-      nm.round++;
-      nm.depth++;
-      if (nm.round >= nm.total) {
-        nm.done = true;
-        sfxConfirm();
-      } else {
-        nm.problem = generateMathProblem(nm.round);
-      }
-    }
-  } else if (nm.collectedGems.length === 0) {
-    drawText('CLICK OR PRESS 1, 2, 3', W/2, 300, 1, COLORS.gray, 'center');
   }
 }
 
-function numberMineAnswer(choice) {
-  const nm = numberMineState;
-  if (nm.done || nm.feedbackTimer > 0) return;
-  if (choice === nm.problem.correctIdx) {
-    nm.score++;
-    nm.feedback = 'CORRECT!';
+function mineCartAnswer(choice) {
+  const mc = mineCartState;
+  if (mc.phase !== 'choosing') return;
+
+  mc.chosenTrack = choice;
+
+  if (choice === mc.problem.correctIdx) {
+    mc.score++;
+    mc.crashed = false;
     sfxConfirm();
-    // Add a collected gem (named gem types)
-    const GEM_TYPES = [
-      { name: 'RUBY', color: '#e02020', shape: 'octagon' },
-      { name: 'EMERALD', color: '#20c040', shape: 'rect' },
-      { name: 'SAPPHIRE', color: '#2060e0', shape: 'oval' },
-      { name: 'DIAMOND', color: '#c0e0ff', shape: 'diamond' },
-      { name: 'AMETHYST', color: '#a040e0', shape: 'diamond' },
-      { name: 'TOPAZ', color: '#e0a020', shape: 'rect' },
-      { name: 'OPAL', color: '#e0d0f0', shape: 'oval' },
-      { name: 'GARNET', color: '#a02040', shape: 'octagon' },
-    ];
-    const gem = GEM_TYPES[Math.floor(Math.random() * GEM_TYPES.length)];
-    nm.collectedGems.push({ name: gem.name, color: gem.color, shape: gem.shape });
-    // Gem sparkles
-    const sparkleColors = ['#e02020', '#20c040', '#2060e0', '#e0a020', '#a040e0', '#c0e0ff'];
-    for (let i = 0; i < 6; i++) {
-      nm.gems.push({
-        x: W/2 - 20 + Math.random() * 40,
-        y: 160,
-        dx: (Math.random() - 0.5) * 3,
-        color: sparkleColors[Math.floor(Math.random() * sparkleColors.length)],
-        life: 30 + Math.random() * 20,
-        maxLife: 50,
+
+    // Award a gem
+    const GEM_NAMES = ['RUBY', 'EMERALD', 'SAPPHIRE', 'DIAMOND', 'AMETHYST', 'TOPAZ'];
+    mc.gems.push(GEM_NAMES[Math.floor(Math.random() * GEM_NAMES.length)]);
+
+    // Sparkles
+    for (let i = 0; i < 8; i++) {
+      mc.sparkles.push({
+        x: mc.cartX + Math.random() * 30 - 15,
+        y: mc.cartY - 10,
+        vx: (Math.random() - 0.5) * 4,
+        vy: -Math.random() * 3 - 1,
+        color: ['#e0e040', '#40e040', '#e04040', '#4080e0'][Math.floor(Math.random() * 4)],
+        life: 25 + Math.random() * 15,
+        maxLife: 40,
       });
     }
   } else {
-    nm.feedback = 'NOT QUITE! ANSWER: ' + nm.problem.answer;
-    playTone(150, 0.2, 'square', 0.08);
+    mc.crashed = true;
+    mc.shakeX = 8;
+    mc.shakeY = 5;
+    playTone(80, 0.3, 'sawtooth', 0.1);
   }
-  nm.feedbackTimer = 60;
+
+  mc.phase = 'feedback';
+  mc.phaseTimer = 0;
 }
 
-// Number Mine input handlers
+// Mine Cart input handlers
 window.addEventListener('keydown', (e) => {
-  if (gameState === 'numbermine' && !numberMineState.done && numberMineState.feedbackTimer === 0) {
-    if (e.key === '1') numberMineAnswer(0);
-    else if (e.key === '2') numberMineAnswer(1);
-    else if (e.key === '3') numberMineAnswer(2);
+  if (gameState === 'numbermine' && mineCartState.phase === 'choosing') {
+    if (e.key === '1') mineCartAnswer(0);
+    else if (e.key === '2') mineCartAnswer(1);
+    else if (e.key === '3') mineCartAnswer(2);
   }
-  if (gameState === 'numbermine' && numberMineState.done) {
+  if (gameState === 'numbermine' && mineCartState.phase === 'done') {
     if (e.key === 'Enter' || e.key === ' ') {
       sfxConfirm();
       transitionTo('driving5');
@@ -2181,7 +2272,7 @@ canvas.addEventListener('click', (e) => {
   const mx = (e.clientX - rect.left) / (rect.width / W);
   const my = (e.clientY - rect.top) / (rect.height / H);
 
-  if (numberMineState.done) {
+  if (mineCartState.phase === 'done') {
     sfxConfirm();
     transitionTo('driving5');
     driveTimer = 0;
@@ -2190,31 +2281,37 @@ canvas.addEventListener('click', (e) => {
     return;
   }
 
-  if (numberMineState.feedbackTimer > 0) return;
+  if (mineCartState.phase !== 'choosing') return;
 
-  const optionY = 130;
-  const optionSpacing = 50;
+  // Click on tunnels
+  const tunnelY = 110;
+  const tunnelSpacing = 140;
+  const tunnelStartX = W/2 - tunnelSpacing;
   for (let i = 0; i < 3; i++) {
-    const y = optionY + i * optionSpacing;
-    if (mx > W/2 - 80 && mx < W/2 + 80 && my > y - 5 && my < y + 30) {
-      numberMineAnswer(i);
+    const tx = tunnelStartX + i * tunnelSpacing;
+    if (mx > tx - 42 && mx < tx + 42 && my > tunnelY - 15 && my < tunnelY + 72) {
+      mineCartAnswer(i);
       return;
     }
   }
 });
 
 canvas.addEventListener('mousemove', (e) => {
-  if (gameState !== 'numbermine' || numberMineState.done) return;
+  if (gameState !== 'numbermine' || mineCartState.phase !== 'choosing') {
+    mineCartState.targetTrack = -1;
+    return;
+  }
   const rect = canvas.getBoundingClientRect();
   const mx = (e.clientX - rect.left) / (rect.width / W);
   const my = (e.clientY - rect.top) / (rect.height / H);
-  numberMineState.selected = -1;
-  const optionY = 130;
-  const optionSpacing = 50;
+  mineCartState.targetTrack = -1;
+  const tunnelY = 110;
+  const tunnelSpacing = 140;
+  const tunnelStartX = W/2 - tunnelSpacing;
   for (let i = 0; i < 3; i++) {
-    const y = optionY + i * optionSpacing;
-    if (mx > W/2 - 80 && mx < W/2 + 80 && my > y - 5 && my < y + 30) {
-      numberMineState.selected = i;
+    const tx = tunnelStartX + i * tunnelSpacing;
+    if (mx > tx - 42 && mx < tx + 42 && my > tunnelY - 15 && my < tunnelY + 72) {
+      mineCartState.targetTrack = i;
     }
   }
 });
