@@ -384,6 +384,8 @@ function getTouchPos(touch) {
 }
 
 function updateTouchState(e) {
+  // Only intercept touches during staircase gameplay
+  if (gameState !== 'staircase' || staircaseState.phase !== 'playing') return;
   e.preventDefault();
   touchState.left = false;
   touchState.right = false;
@@ -411,6 +413,7 @@ function updateTouchState(e) {
 canvas.addEventListener('touchstart', updateTouchState, { passive: false });
 canvas.addEventListener('touchmove', updateTouchState, { passive: false });
 canvas.addEventListener('touchend', (e) => {
+  if (gameState !== 'staircase' || staircaseState.phase !== 'playing') return;
   e.preventDefault();
   touchState.left = false;
   touchState.right = false;
