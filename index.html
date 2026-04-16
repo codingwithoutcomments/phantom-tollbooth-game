@@ -364,6 +364,77 @@ const keys = {};
 let clickX = -1, clickY = -1;
 let clicked = false;
 
+// Mobile touch controls
+const isMobile = /Android|iPhone|iPad|iPod|Touch/i.test(navigator.userAgent) || ('ontouchstart' in window);
+const touchState = { left: false, right: false, jump: false };
+
+// Virtual button positions (set during staircase render)
+const vButtons = {
+  left:  { x: 20,  y: H - 60, w: 55, h: 50, label: '<' },
+  right: { x: 85,  y: H - 60, w: 55, h: 50, label: '>' },
+  jump:  { x: W - 75, y: H - 60, w: 55, h: 50, label: 'JUMP' },
+};
+
+function getTouchPos(touch) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (touch.clientX - rect.left) / (rect.width / W),
+    y: (touch.clientY - rect.top) / (rect.height / H),
+  };
+}
+
+function updateTouchState(e) {
+  e.preventDefault();
+  touchState.left = false;
+  touchState.right = false;
+  touchState.jump = false;
+  for (const touch of e.touches) {
+    const pos = getTouchPos(touch);
+    for (const [name, btn] of Object.entries(vButtons)) {
+      if (pos.x >= btn.x && pos.x <= btn.x + btn.w &&
+          pos.y >= btn.y && pos.y <= btn.y + btn.h) {
+        touchState[name] = true;
+      }
+    }
+  }
+  // Map touch to keys for staircase physics
+  keys['ArrowLeft'] = touchState.left;
+  keys['ArrowRight'] = touchState.right;
+  if (touchState.jump && !keys['touchJumpPrev']) {
+    keys[' '] = true;
+  } else if (!touchState.jump) {
+    keys[' '] = false;
+  }
+  keys['touchJumpPrev'] = touchState.jump;
+}
+
+canvas.addEventListener('touchstart', updateTouchState, { passive: false });
+canvas.addEventListener('touchmove', updateTouchState, { passive: false });
+canvas.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  touchState.left = false;
+  touchState.right = false;
+  touchState.jump = false;
+  keys['ArrowLeft'] = false;
+  keys['ArrowRight'] = false;
+  keys[' '] = false;
+  keys['touchJumpPrev'] = false;
+}, { passive: false });
+
+function drawVirtualButtons() {
+  if (!isMobile) return;
+  for (const [name, btn] of Object.entries(vButtons)) {
+    const pressed = touchState[name];
+    ctx.fillStyle = pressed ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)';
+    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
+    drawText(btn.label, btn.x + btn.w/2, btn.y + btn.h/2 - 4, name === 'jump' ? 1 : 2,
+      pressed ? '#ffffff' : '#cccccc', 'center');
+  }
+}
+
 window.addEventListener('keydown', (e) => {
   keys[e.key] = true;
   keys[e.code] = true;
@@ -2613,8 +2684,13 @@ function renderStaircase() {
     drawText('DEMON DODGE STAIRCASE', W/2, 80, 2, COLORS.red, 'center');
     drawText('CLIMB THE STAIRS TO THE', W/2, 110, 1, COLORS.white, 'center');
     drawText('CASTLE IN THE AIR!', W/2, 126, 1, COLORS.white, 'center');
-    drawText('ARROW KEYS OR A/D TO MOVE', W/2, 150, 1, COLORS.lightGray, 'center');
-    drawText('SPACE OR W TO JUMP', W/2, 166, 1, COLORS.lightGray, 'center');
+    if (isMobile) {
+      drawText('USE THE BUTTONS TO MOVE', W/2, 150, 1, COLORS.lightGray, 'center');
+      drawText('AND JUMP!', W/2, 166, 1, COLORS.lightGray, 'center');
+    } else {
+      drawText('ARROW KEYS OR A/D TO MOVE', W/2, 150, 1, COLORS.lightGray, 'center');
+      drawText('SPACE OR W TO JUMP', W/2, 166, 1, COLORS.lightGray, 'center');
+    }
     drawText('AVOID THE DEMONS!', W/2, 186, 1, COLORS.red, 'center');
 
     if (st.phaseTimer > 280) {
@@ -2721,6 +2797,9 @@ function renderStaircase() {
     // Camera follows player (smooth)
     const targetCameraY = st.playerY - H * 0.6;
     st.cameraY += (targetCameraY - st.cameraY) * 0.1;
+
+    // Mobile touch controls
+    drawVirtualButtons();
 
   } else if (st.phase === 'won') {
     st.doneTimer++;
