@@ -26,11 +26,11 @@ Title Screen → Book Summary → Character Select
 - [x] The Doldrums - tap/click to THINK and escape
 - [x] Driving to Dictionopolis with welcome sign
 - [x] Level 1: Word Market - match words to synonyms
-- [ ] Driving to Chroma's Orchestra
-- [ ] Bonus: Chroma's Orchestra - conduct the sunrise (color/rhythm game)
-- [ ] Driving to Digitopolis with welcome sign
-- [ ] Level 2: Number Mine - addition & subtraction challenges
-- [ ] Driving to Mountains of Ignorance
-- [ ] Level 3: Demon Dodge Staircase - platformer climb, dodge demons, rescue princesses
-- [ ] Victory / End screen
+- [x] Driving to Chroma's Orchestra
+- [x] Bonus: Chroma's Orchestra - conduct the sunrise (color/rhythm game)
+- [x] Driving to Digitopolis with welcome sign
+- [x] Level 2: Number Mine - addition & subtraction challenges
+- [x] Driving to Mountains of Ignorance
+- [x] Level 3: Demon Dodge Staircase - platformer climb, dodge demons, rescue princesses
+- [x] Victory / End screen
 - [ ] Polish: sound effects, transitions, difficulty tuning

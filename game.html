@@ -335,6 +335,8 @@ let doldrumsClicks = [];
 let doldrumsGrayness = 1.0;
 let doldrumsWon = false;
 let doldrumsTimer = 0;
+let doldrumsWinTimer = 0;
+let doldrumsTransitioned = false;
 let doldrumsMessage = '';
 let lethargarians = [];
 
@@ -516,38 +518,137 @@ function drawCharacterLarge(key, x, y) {
 // SCREEN RENDERERS
 // ============================================================
 
+// Title screen animation state
+let titleAnimTimer = 0;
+// Phases: 0=car approaches, 1=barrier lifts, 2=car drives through, 3=barrier closes, 4=loop pause
+const TITLE_PHASE_TIMES = [90, 40, 70, 40, 60]; // frames per phase
+
+function getTitlePhase() {
+  let t = titleAnimTimer % (TITLE_PHASE_TIMES.reduce((a,b) => a+b, 0));
+  for (let i = 0; i < TITLE_PHASE_TIMES.length; i++) {
+    if (t < TITLE_PHASE_TIMES[i]) return { phase: i, progress: t / TITLE_PHASE_TIMES[i] };
+    t -= TITLE_PHASE_TIMES[i];
+  }
+  return { phase: 4, progress: 1 };
+}
+
 function renderTitle() {
+  titleAnimTimer++;
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, W, H);
   drawStars();
 
-  // Tollbooth icon (simple pixel arch)
-  const tollY = 60;
-  ctx.fillStyle = COLORS.yellow;
-  for (let i = 0; i < 40; i++) {
-    const angle = Math.PI * i / 39;
-    const px = W/2 - 20 + i;
-    const py = tollY - Math.sin(angle) * 20;
-    ctx.fillRect(px, py, 1, 3);
-  }
-  ctx.fillStyle = COLORS.gold;
-  ctx.fillRect(W/2 - 22, tollY, 4, 30);
-  ctx.fillRect(W/2 + 18, tollY, 4, 30);
-  ctx.fillStyle = COLORS.yellow;
-  ctx.fillRect(W/2 - 22, tollY - 2, 44, 4);
-  // Barrier arm
-  ctx.fillStyle = COLORS.red;
-  const armAngle = Math.sin(frameCount * 0.03) * 0.3;
-  for (let i = 0; i < 30; i++) {
-    ctx.fillRect(W/2 + 18 + Math.cos(armAngle) * i, tollY + 5 - Math.sin(armAngle) * i, 2, 3);
+  const { phase, progress } = getTitlePhase();
+
+  // -- Draw the tollbooth scene --
+  const boothX = W / 2;
+  const groundY = 105;
+
+  // Road surface
+  ctx.fillStyle = '#383838';
+  ctx.fillRect(boothX - 100, groundY, 200, 12);
+  ctx.fillStyle = '#f0c040';
+  // Dashed center line
+  for (let i = -100; i < 100; i += 18) {
+    ctx.fillRect(boothX + i, groundY + 5, 10, 2);
   }
 
-  // Title text with glow
-  const pulse = Math.sin(frameCount * 0.04) * 0.3 + 0.7;
-  drawText('THE PHANTOM', W/2, 110, 3, COLORS.yellow, 'center');
-  drawText('TOLLBOOTH', W/2, 140, 3, COLORS.gold, 'center');
+  // Tollbooth structure - booth cabin
+  ctx.fillStyle = '#705030';
+  ctx.fillRect(boothX - 4, groundY - 48, 32, 48); // main cabin
+  ctx.fillStyle = '#8a6840';
+  ctx.fillRect(boothX - 2, groundY - 46, 28, 44); // cabin face
+  // Roof
+  ctx.fillStyle = '#c03030';
+  ctx.fillRect(boothX - 8, groundY - 54, 40, 8);
+  ctx.fillStyle = '#a02020';
+  ctx.fillRect(boothX - 6, groundY - 56, 36, 4);
+  // Window
+  ctx.fillStyle = '#80c0e0';
+  ctx.fillRect(boothX + 4, groundY - 40, 16, 12);
+  // Window shine
+  ctx.fillStyle = '#b0e0ff';
+  ctx.fillRect(boothX + 5, groundY - 39, 4, 4);
+  // Sign on booth
+  drawText('TOLL', boothX + 12, groundY - 22, 1, COLORS.yellow, 'center');
 
-  drawText('GAME', W/2, 175, 2, COLORS.orange, 'center');
+  // Left post (barrier pivot post)
+  ctx.fillStyle = '#606060';
+  ctx.fillRect(boothX - 10, groundY - 30, 6, 30);
+  // Post base
+  ctx.fillStyle = '#505050';
+  ctx.fillRect(boothX - 12, groundY - 4, 10, 4);
+
+  // Barrier arm - angle depends on phase
+  let barrierAngle;
+  if (phase === 0) {
+    barrierAngle = 0; // down/horizontal
+  } else if (phase === 1) {
+    // lifting
+    barrierAngle = -progress * (Math.PI / 2.2);
+  } else if (phase === 2) {
+    barrierAngle = -(Math.PI / 2.2); // fully up
+  } else if (phase === 3) {
+    // closing
+    barrierAngle = -(1 - progress) * (Math.PI / 2.2);
+  } else {
+    barrierAngle = 0; // down
+  }
+
+  const armLen = 70;
+  const armPivotX = boothX - 7;
+  const armPivotY = groundY - 26;
+  const armEndX = armPivotX - Math.cos(barrierAngle) * armLen;
+  const armEndY = armPivotY + Math.sin(barrierAngle) * armLen;
+
+  // Draw barrier arm (red and white stripes)
+  for (let i = 0; i < armLen; i++) {
+    const t = i / armLen;
+    const px = armPivotX + (armEndX - armPivotX) * t;
+    const py = armPivotY + (armEndY - armPivotY) * t;
+    ctx.fillStyle = (Math.floor(i / 8) % 2 === 0) ? '#c03030' : '#e0e0e0';
+    ctx.fillRect(px - 1, py - 2, 3, 5);
+  }
+  // Pivot circle
+  ctx.fillStyle = '#f0c040';
+  ctx.fillRect(armPivotX - 3, armPivotY - 3, 6, 6);
+
+  // Little red car - position depends on phase
+  let titleCarX;
+  if (phase === 0) {
+    // approaching from left, stops before barrier
+    titleCarX = boothX - 140 + progress * 60;
+  } else if (phase === 1) {
+    // waiting
+    titleCarX = boothX - 80;
+  } else if (phase === 2) {
+    // driving through and off to the right
+    titleCarX = boothX - 80 + progress * 220;
+  } else if (phase === 3 || phase === 4) {
+    // off screen right, then reappear far left at end
+    titleCarX = phase === 4 ? boothX - 140 - (1 - progress) * 40 : boothX + 200;
+  }
+
+  // Only draw car if on screen
+  if (titleCarX > -50 && titleCarX < W + 50) {
+    const bounce = Math.sin(titleAnimTimer * 0.15) * 1;
+    // Car body (smaller scale for title)
+    drawPixelArt(CAR_SPRITE, titleCarX, groundY - 18 + bounce, 2);
+    // Tiny character on car
+    const key = characterKeys[0]; // always show Milo on title
+    // Draw a tiny simplified Milo
+    ctx.fillStyle = '#4080d0';
+    ctx.fillRect(titleCarX + 12, groundY - 28 + bounce, 6, 8);
+    ctx.fillStyle = '#f0b888';
+    ctx.fillRect(titleCarX + 13, groundY - 33 + bounce, 4, 5);
+    ctx.fillStyle = '#4a3020';
+    ctx.fillRect(titleCarX + 13, groundY - 36 + bounce, 4, 3);
+  }
+
+  // -- Title text --
+  drawText('THE PHANTOM', W/2, 140, 3, COLORS.yellow, 'center');
+  drawText('TOLLBOOTH', W/2, 170, 3, COLORS.gold, 'center');
+  drawText('GAME', W/2, 205, 2, COLORS.orange, 'center');
 
   // Blinking prompt
   if (Math.floor(frameCount / 30) % 2 === 0) {
@@ -655,7 +756,7 @@ function renderDriving() {
     const by = Math.sin(driveTimer * 0.15) * 2;
     drawPixelArt(sprite.data, carX + 10, 208 + by, 2);
 
-    if (driveTimer > 60) {
+    if (driveTimer > 90) {
       drivePhase = 1;
     }
   } else if (drivePhase === 1) {
@@ -682,7 +783,7 @@ function renderDriving() {
     drawText('THE LANDS', signX + 80, 72, 2, '#8B4513', 'center');
     drawText('BEYOND!', signX + 80, 95, 2, '#8B4513', 'center');
 
-    if (signX <= W / 2 - 80 && driveTimer > 150) {
+    if (signX <= W / 2 - 80 && driveTimer > 240) {
       drivePhase = 2;
       driveTimer = 0;
     }
@@ -707,7 +808,7 @@ function renderDriving() {
     drawText('THE LANDS', signX + 80, 72, 2, '#8B4513', 'center');
     drawText('BEYOND!', signX + 80, 95, 2, '#8B4513', 'center');
 
-    if (carX > W + 60) {
+    if (carX > W + 60 && gameState !== 'doldrums') {
       startDoldrums();
     }
   }
@@ -734,9 +835,17 @@ function renderDoldrums() {
   ctx.fillStyle = `rgb(${gndR},${gndG},${gndB})`;
   ctx.fillRect(0, 200, W, 120);
 
-  // Energy drain
+  // Energy drain (check win threshold before draining)
   if (!doldrumsWon) {
-    doldrumsEnergy = Math.max(0, doldrumsEnergy - doldrumsDrain);
+    if (doldrumsEnergy >= doldrumsTarget) {
+      doldrumsWon = true;
+      doldrumsMessage = 'YOU THOUGHT YOUR WAY OUT!';
+      doldrumsWinTimer = 0;
+      doldrumsTransitioned = false;
+      sfxConfirm();
+    } else {
+      doldrumsEnergy = Math.max(0, doldrumsEnergy - doldrumsDrain);
+    }
   }
 
   // Draw Lethargarians (lazy blob creatures)
@@ -786,31 +895,29 @@ function renderDoldrums() {
   ctx.fillRect(W/2 - 98, 22, (doldrumsEnergy / doldrumsTarget) * 196, 12);
   drawText('THINKING POWER', W/2, 10, 1, COLORS.white, 'center');
 
-  // Message
-  if (doldrumsTimer < 120) {
+  // Message — slower intro so you can read it
+  if (doldrumsTimer < 180) {
     doldrumsMessage = 'YOU ENTER THE DOLDRUMS...';
-  } else if (doldrumsTimer < 200) {
+  } else if (doldrumsTimer < 360) {
     doldrumsMessage = 'THINKING IS NOT ALLOWED HERE!';
   } else if (!doldrumsWon) {
     doldrumsMessage = 'CLICK OR PRESS SPACE TO THINK!';
   }
   drawText(doldrumsMessage, W/2, 290, 1, COLORS.white, 'center');
 
-  if (doldrumsTimer < 200) {
+  if (doldrumsTimer < 360) {
     drawText('THE LETHARGARIANS DO NOTHING...', W/2, 305, 1, COLORS.gray, 'center');
   }
 
-  // Check win
-  if (!doldrumsWon && doldrumsEnergy >= doldrumsTarget) {
-    doldrumsWon = true;
-    doldrumsMessage = 'YOU THOUGHT YOUR WAY OUT!';
-    doldrumsTimer = 0;
-    sfxConfirm();
-  }
-
+  // Win state
   if (doldrumsWon) {
-    drawText('YOU THOUGHT YOUR WAY OUT!', W/2, 290, 2, COLORS.green, 'center');
-    if (doldrumsTimer > 120) {
+    doldrumsWinTimer++;
+    // Dark banner behind win text for readability
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 130, W, 60);
+    drawText('YOU THOUGHT YOUR WAY OUT!', W/2, 145, 3, COLORS.green, 'center');
+    if (doldrumsWinTimer > 120 && !doldrumsTransitioned) {
+      doldrumsTransitioned = true;
       transitionTo('driving2');
       driveTimer = 0;
       drivePhase = 0;
@@ -821,7 +928,7 @@ function renderDoldrums() {
 }
 
 function doldrumsThink() {
-  if (gameState !== 'doldrums' || doldrumsWon || doldrumsTimer < 200) return;
+  if (gameState !== 'doldrums' || doldrumsWon || doldrumsTimer < 360) return;
   doldrumsEnergy = Math.min(doldrumsTarget, doldrumsEnergy + 8);
   doldrumsClicks.push({
     x: W/2 - 30 + Math.random() * 60,
@@ -865,7 +972,7 @@ function renderDriving2() {
     const key = characterKeys[selectedCharacter];
     drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
 
-    if (driveTimer > 60) {
+    if (driveTimer > 90) {
       drivePhase = 1;
     }
   } else if (drivePhase === 1) {
@@ -888,7 +995,7 @@ function renderDriving2() {
     drawText('DICTION-', signX + 80, 72, 2, '#6a3aba', 'center');
     drawText('OPOLIS!', signX + 80, 95, 2, '#6a3aba', 'center');
 
-    if (signX <= W / 2 - 80 && driveTimer > 160) {
+    if (signX <= W / 2 - 80 && driveTimer > 260) {
       drivePhase = 2;
       driveTimer = 0;
     }
@@ -910,8 +1017,7 @@ function renderDriving2() {
     drawText('DICTION-', signX + 80, 72, 2, '#6a3aba', 'center');
     drawText('OPOLIS!', signX + 80, 95, 2, '#6a3aba', 'center');
 
-    if (carX > W + 60) {
-      // TODO: transition to Level 1 - Word Market
+    if (carX > W + 60 && !transitionTarget) {
       transitionTo('wordmarket');
     }
   }
@@ -923,26 +1029,74 @@ function renderDriving2() {
 let wordMarketState = {};
 
 const WORD_PAIRS = [
-  { word: 'BRAVE', options: ['COURAGEOUS', 'TINY', 'SLOW'], answer: 0 },
-  { word: 'HAPPY', options: ['SAD', 'JOYFUL', 'HEAVY'], answer: 1 },
-  { word: 'BIG', options: ['SMALL', 'FAST', 'LARGE'], answer: 2 },
-  { word: 'SMART', options: ['CLEVER', 'LOUD', 'WET'], answer: 0 },
-  { word: 'FAST', options: ['HEAVY', 'BRIGHT', 'QUICK'], answer: 2 },
-  { word: 'COLD', options: ['WARM', 'CHILLY', 'TALL'], answer: 1 },
-  { word: 'ANGRY', options: ['CALM', 'SLEEPY', 'FURIOUS'], answer: 2 },
-  { word: 'QUIET', options: ['SILENT', 'LOUD', 'SHARP'], answer: 0 },
-  { word: 'OLD', options: ['NEW', 'ANCIENT', 'SMOOTH'], answer: 1 },
-  { word: 'SMALL', options: ['HUGE', 'BRIGHT', 'TINY'], answer: 2 },
-  { word: 'DARK', options: ['GLOOMY', 'SWEET', 'WIDE'], answer: 0 },
-  { word: 'PRETTY', options: ['UGLY', 'BEAUTIFUL', 'ROUGH'], answer: 1 },
+  { word: 'BRAVE', options: ['COURAGEOUS', 'GENEROUS', 'CAUTIOUS'], answer: 0 },
+  { word: 'HAPPY', options: ['GRACEFUL', 'JOYFUL', 'HOPEFUL'], answer: 1 },
+  { word: 'BIG', options: ['GRAND', 'BOLD', 'ENORMOUS'], answer: 2 },
+  { word: 'SMART', options: ['CLEVER', 'CURIOUS', 'CAREFUL'], answer: 0 },
+  { word: 'FAST', options: ['FIERCE', 'EAGER', 'SWIFT'], answer: 2 },
+  { word: 'COLD', options: ['BITTER', 'FRIGID', 'STIFF'], answer: 1 },
+  { word: 'ANGRY', options: ['ANXIOUS', 'STUBBORN', 'FURIOUS'], answer: 2 },
+  { word: 'QUIET', options: ['HUSHED', 'GENTLE', 'TIMID'], answer: 0 },
+  { word: 'OLD', options: ['WEARY', 'ANCIENT', 'FRAGILE'], answer: 1 },
+  { word: 'SMALL', options: ['FAINT', 'NARROW', 'TINY'], answer: 2 },
+  { word: 'DARK', options: ['GLOOMY', 'DREARY', 'FADED'], answer: 0 },
+  { word: 'PRETTY', options: ['ELEGANT', 'BEAUTIFUL', 'DELICATE'], answer: 1 },
+  { word: 'SCARY', options: ['FRIGHTENING', 'STARTLING', 'UNEASY'], answer: 0 },
+  { word: 'FUNNY', options: ['PECULIAR', 'HILARIOUS', 'CHEERFUL'], answer: 1 },
+  { word: 'STRONG', options: ['STURDY', 'STRICT', 'STEADY'], answer: 0 },
+  { word: 'WEAK', options: ['HUMBLE', 'FRAGILE', 'SHALLOW'], answer: 1 },
+  { word: 'RICH', options: ['NOBLE', 'GENEROUS', 'WEALTHY'], answer: 2 },
+  { word: 'POOR', options: ['NEEDY', 'HUMBLE', 'SIMPLE'], answer: 0 },
+  { word: 'SHY', options: ['MODEST', 'BASHFUL', 'PEACEFUL'], answer: 1 },
+  { word: 'RUDE', options: ['BLUNT', 'HARSH', 'IMPOLITE'], answer: 2 },
+  { word: 'KIND', options: ['GENTLE', 'HONEST', 'PLEASANT'], answer: 0 },
+  { word: 'MEAN', options: ['STRICT', 'CRUEL', 'BITTER'], answer: 1 },
+  { word: 'TIRED', options: ['RESTLESS', 'SLUGGISH', 'EXHAUSTED'], answer: 2 },
+  { word: 'GLAD', options: ['PLEASED', 'RELIEVED', 'HOPEFUL'], answer: 0 },
+  { word: 'SAD', options: ['WEARY', 'SORROWFUL', 'LONELY'], answer: 1 },
+  { word: 'WEIRD', options: ['UNUSUAL', 'FOOLISH', 'STRANGE'], answer: 2 },
+  { word: 'NICE', options: ['PLEASANT', 'POLITE', 'PROPER'], answer: 0 },
+  { word: 'HARD', options: ['RIGID', 'DIFFICULT', 'COMPLEX'], answer: 1 },
+  { word: 'EASY', options: ['PLAIN', 'BASIC', 'SIMPLE'], answer: 2 },
+  { word: 'LOUD', options: ['BOOMING', 'INTENSE', 'HARSH'], answer: 0 },
+  { word: 'THIN', options: ['SLIGHT', 'SLENDER', 'FRAGILE'], answer: 1 },
+  { word: 'FAT', options: ['ROUND', 'HEAVY', 'PLUMP'], answer: 2 },
+  { word: 'SICK', options: ['ILL', 'WEAK', 'FAINT'], answer: 0 },
+  { word: 'WET', options: ['DAMP', 'SOAKED', 'MISTY'], answer: 1 },
+  { word: 'DRY', options: ['DUSTY', 'STALE', 'PARCHED'], answer: 2 },
+  { word: 'CLEAN', options: ['SPOTLESS', 'FRESH', 'PURE'], answer: 0 },
+  { word: 'DIRTY', options: ['MESSY', 'FILTHY', 'DUSTY'], answer: 1 },
+  { word: 'TALL', options: ['GRAND', 'LENGTHY', 'TOWERING'], answer: 2 },
+  { word: 'SHORT', options: ['BRIEF', 'SMALL', 'COMPACT'], answer: 0 },
+  { word: 'WARM', options: ['MILD', 'TOASTY', 'GENTLE'], answer: 1 },
+  { word: 'BRIGHT', options: ['VIVID', 'BOLD', 'RADIANT'], answer: 2 },
+  { word: 'DULL', options: ['BORING', 'PLAIN', 'FADED'], answer: 0 },
+  { word: 'SHARP', options: ['PRECISE', 'KEEN', 'STRICT'], answer: 1 },
+  { word: 'SOFT', options: ['SMOOTH', 'LIGHT', 'TENDER'], answer: 2 },
+  { word: 'ROUGH', options: ['COARSE', 'RUGGED', 'HARSH'], answer: 0 },
+  { word: 'CALM', options: ['GENTLE', 'PEACEFUL', 'PATIENT'], answer: 1 },
+  { word: 'WILD', options: ['FIERCE', 'ROWDY', 'UNTAMED'], answer: 2 },
+  { word: 'LAZY', options: ['IDLE', 'RELAXED', 'SLUGGISH'], answer: 0 },
+  { word: 'BUSY', options: ['RESTLESS', 'OCCUPIED', 'HURRIED'], answer: 1 },
+  { word: 'EMPTY', options: ['HOLLOW', 'BARE', 'VACANT'], answer: 2 },
+  { word: 'FULL', options: ['PACKED', 'LOADED', 'HEAVY'], answer: 0 },
+  { word: 'LOST', options: ['CONFUSED', 'MISSING', 'FORGOTTEN'], answer: 1 },
+  { word: 'SAFE', options: ['STABLE', 'CALM', 'SECURE'], answer: 2 },
+  { word: 'TRUE', options: ['GENUINE', 'FAITHFUL', 'HONEST'], answer: 0 },
+  { word: 'FALSE', options: ['WRONG', 'UNTRUE', 'MISTAKEN'], answer: 1 },
+  { word: 'WISE', options: ['EDUCATED', 'LEARNED', 'KNOWING'], answer: 2 },
+  { word: 'SILLY', options: ['FOOLISH', 'PLAYFUL', 'CLUMSY'], answer: 0 },
+  { word: 'SURE', options: ['STEADY', 'CERTAIN', 'FIRM'], answer: 1 },
+  { word: 'AFRAID', options: ['NERVOUS', 'WORRIED', 'FEARFUL'], answer: 2 },
+  { word: 'NEAT', options: ['TIDY', 'PROPER', 'PRECISE'], answer: 0 },
 ];
 
 function startWordMarket() {
   wordMarketState = {
     round: 0,
     score: 0,
-    total: 8,
-    currentPairs: shuffleArray([...WORD_PAIRS]).slice(0, 8),
+    total: 5,
+    currentPairs: shuffleArray([...WORD_PAIRS]).slice(0, 5),
     selected: -1,
     feedback: '',
     feedbackTimer: 0,
@@ -950,6 +1104,8 @@ function startWordMarket() {
     introTimer: 0,
     spellingBeeX: W - 60,
     spellingBeeDir: 1,
+    beeHint: '',        // speech bubble text when bee is clicked
+    beeHintTimer: 0,    // countdown for speech bubble
   };
 }
 
@@ -1001,6 +1157,25 @@ function renderWordMarket() {
   ctx.fillStyle = '#ffffff80';
   ctx.fillRect(wm.spellingBeeX - 8, beeY - 4, 6, 5);
   ctx.fillRect(wm.spellingBeeX + 2, beeY - 4, 6, 5);
+
+  // Speech bubble hint (easter egg)
+  if (wm.beeHintTimer > 0) {
+    wm.beeHintTimer--;
+    const bubbleX = wm.spellingBeeX;
+    const bubbleY = beeY - 28;
+    const bubbleW = wm.beeHint.length * 6 + 16;
+    // Bubble
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(bubbleX - bubbleW/2, bubbleY - 10, bubbleW, 18);
+    ctx.strokeStyle = '#302020';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bubbleX - bubbleW/2, bubbleY - 10, bubbleW, 18);
+    // Tail
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(bubbleX - 3, bubbleY + 8, 6, 5);
+    // Text
+    drawText(wm.beeHint, bubbleX, bubbleY - 5, 1, '#302020', 'center');
+  }
 
   if (wm.done) {
     drawText('WORD MARKET COMPLETE!', W/2, 120, 2, COLORS.yellow, 'center');
@@ -1108,6 +1283,21 @@ canvas.addEventListener('click', (e) => {
 
   if (wordMarketState.feedbackTimer > 0) return;
 
+  // Easter egg: click the Spelling Bee for a hint!
+  const wm = wordMarketState;
+  const beeY = 62 + Math.sin(frameCount * 0.05) * 8;
+  if (mx > wm.spellingBeeX - 18 && mx < wm.spellingBeeX + 22 &&
+      my > beeY - 12 && my < beeY + 18 && !wm.done) {
+    const pair = wm.currentPairs[wm.round];
+    const answer = pair.options[pair.answer];
+    // Spell it out letter by letter with dashes
+    wm.beeHint = answer.split('').join('-');
+    wm.beeHintTimer = 120;
+    playTone(600, 0.05, 'sine', 0.08);
+    playTone(800, 0.05, 'sine', 0.06);
+    return;
+  }
+
   const optionY = 155;
   const optionSpacing = 45;
   for (let i = 0; i < 3; i++) {
@@ -1137,23 +1327,417 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 // ============================================================
-// PLACEHOLDER SCREENS FOR FUTURE LEVELS
+// DRIVING 3: TO CHROMA'S ORCHESTRA
 // ============================================================
 
 function renderDriving3() {
-  // Driving to Chroma's Orchestra / Digitopolis
   driveTimer++;
   const scrollSpeed = 3;
   const scrollOffset = driveTimer * scrollSpeed;
 
+  // Dark pre-dawn sky
+  const dawnProgress = Math.min(1, driveTimer / 180);
+  const skyR = Math.floor(15 + dawnProgress * 30);
+  const skyG = Math.floor(15 + dawnProgress * 20);
+  const skyB = Math.floor(50 + dawnProgress * 40);
+  ctx.fillStyle = `rgb(${skyR},${skyG},${skyB})`;
+  ctx.fillRect(0, 0, W, 200);
+
+  // Stars fading as dawn approaches
+  if (dawnProgress < 0.8) {
+    for (let i = 0; i < 20; i++) {
+      const sx = (i * 73 + 20) % W;
+      const sy = (i * 37 + 10) % 150;
+      const alpha = (1 - dawnProgress) * (0.3 + Math.sin(frameCount * 0.03 + i) * 0.2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fillRect(sx, sy, 2, 2);
+    }
+  }
+
   drawRoad(scrollOffset);
 
-  // Colorful sky for post-Dictionopolis
+  // Dark hills
+  ctx.fillStyle = '#1a4a1a';
+  for (let x = 0; x < W; x++) {
+    const h = Math.sin((x + scrollOffset * 0.2) * 0.02) * 20 + Math.sin((x + scrollOffset * 0.2) * 0.005) * 30;
+    ctx.fillRect(x, 190 - h, 1, 10 + h);
+  }
+
+  if (drivePhase === 0) {
+    // Car drives to center and stops
+    carX = Math.min(carX + 2, W / 2 - 24);
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    if (driveTimer > 60) {
+      drawText('THE SUN HAS NOT RISEN YET...', W/2, 60, 1, COLORS.lightGray, 'center');
+    }
+    if (driveTimer > 130) {
+      drawText('YOU MEET CHROMA THE GREAT!', W/2, 80, 2, COLORS.yellow, 'center');
+    }
+    if (driveTimer > 210) {
+      drawText('HE NEEDS HELP CONDUCTING', W/2, 110, 1, COLORS.white, 'center');
+      drawText('THE SUNRISE!', W/2, 126, 1, COLORS.white, 'center');
+    }
+    if (driveTimer > 320 && !transitionTarget) {
+      transitionTo('orchestra');
+    }
+  }
+}
+
+// ============================================================
+// BONUS: CHROMA'S ORCHESTRA - PLUCK THE COLOR STRINGS
+// ============================================================
+const STRING_COLORS = [
+  { name: 'RED', color: '#e04040', glow: '#ff6060', tone: 262 },
+  { name: 'YELLOW', color: '#e0c040', glow: '#ffe060', tone: 330 },
+  { name: 'GREEN', color: '#40c040', glow: '#60ff60', tone: 392 },
+  { name: 'BLUE', color: '#4080e0', glow: '#60a0ff', tone: 523 },
+];
+
+let orchestraState = {};
+
+function startOrchestra() {
+  // Generate sequence of 10 strings to pluck
+  const sequence = [];
+  for (let i = 0; i < 10; i++) {
+    sequence.push(Math.floor(Math.random() * 4));
+  }
+  orchestraState = {
+    sequence: sequence,
+    current: 0,
+    total: 10,
+    score: 0,
+    phase: 'intro',       // intro, playing, done
+    phaseTimer: 0,
+    sunProgress: 0,
+    activeString: -1,     // which string is lit up
+    glowPulse: 0,         // animation pulse for the active string
+    pluckedString: -1,    // which string was just plucked (for vibration anim)
+    pluckTimer: 0,        // frames since last pluck (for vibration decay)
+    wrongString: -1,      // flash red on wrong pluck
+    wrongTimer: 0,
+    skyStripes: [],       // color stripes painted in the sky
+    done: false,
+    doneTimer: 0,
+  };
+}
+
+function renderOrchestra() {
+  const os = orchestraState;
+  os.phaseTimer++;
+  os.glowPulse += 0.08;
+  if (os.pluckTimer > 0) os.pluckTimer--;
+  if (os.wrongTimer > 0) os.wrongTimer--;
+
+  // Sky — starts dark, fills with color
+  const sp = os.sunProgress;
+  // Gradient from dark to sunrise colors
+  const gradient = ctx.createLinearGradient(0, 0, 0, 180);
+  gradient.addColorStop(0, `rgb(${Math.floor(15 + sp * 80)},${Math.floor(15 + sp * 60)},${Math.floor(50 + sp * 120)})`);
+  gradient.addColorStop(1, `rgb(${Math.floor(20 + sp * 220)},${Math.floor(20 + sp * 130)},${Math.floor(40 + sp * 60)})`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, 180);
+
+  // Sun rising
+  if (sp > 0.15) {
+    const sunY = 180 - sp * 140;
+    const sunR = 12 + sp * 30;
+    ctx.fillStyle = `rgba(255,200,50,${sp * 0.2})`;
+    ctx.beginPath();
+    ctx.arc(W / 2, sunY, sunR * 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f0d040';
+    ctx.beginPath();
+    ctx.arc(W / 2, sunY, sunR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Color stripes painted across the sky
+  for (const stripe of os.skyStripes) {
+    ctx.fillStyle = stripe.color + '50';
+    ctx.fillRect(0, stripe.y, W, stripe.h);
+  }
+
+  // Ground
+  ctx.fillStyle = `rgb(${Math.floor(25 + sp * 35)},${Math.floor(50 + sp * 70)},${Math.floor(25 + sp * 25)})`;
+  ctx.fillRect(0, 180, W, 140);
+
+  // Hills
+  for (let x = 0; x < W; x++) {
+    const h = Math.sin(x * 0.015) * 12 + Math.sin(x * 0.007) * 18;
+    ctx.fillStyle = `rgb(${Math.floor(20 + sp * 25)},${Math.floor(45 + sp * 55)},${Math.floor(20 + sp * 18)})`;
+    ctx.fillRect(x, 170 - h, 1, 10 + h);
+  }
+
+  // Chroma the Great on the left
+  const chromaX = 38;
+  const chromaY = 198;
+  // Flowing robe (tapers at top, wider at bottom)
+  ctx.fillStyle = '#6030a0';
+  ctx.fillRect(chromaX - 12, chromaY + 24, 24, 8); // robe hem
+  ctx.fillStyle = '#8040c0';
+  ctx.fillRect(chromaX - 10, chromaY + 10, 20, 16); // lower robe
+  ctx.fillStyle = '#9050d0';
+  ctx.fillRect(chromaX - 8, chromaY, 16, 14); // upper robe
+  // Colorful sash across chest
+  ctx.fillStyle = '#e04040';
+  ctx.fillRect(chromaX - 6, chromaY + 4, 12, 3);
+  ctx.fillStyle = '#e0c040';
+  ctx.fillRect(chromaX - 6, chromaY + 7, 12, 3);
+  // Arms
+  ctx.fillStyle = '#9050d0';
+  ctx.fillRect(chromaX - 14, chromaY + 2, 5, 10); // left arm
+  ctx.fillRect(chromaX + 9, chromaY + 2, 5, 10); // right arm (holds baton)
+  // Hands
+  ctx.fillStyle = '#f0b888';
+  ctx.fillRect(chromaX - 14, chromaY + 10, 4, 4);
+  ctx.fillRect(chromaX + 10, chromaY + 0, 4, 4);
+  // Head
+  ctx.fillStyle = '#f0b888';
+  ctx.fillRect(chromaX - 5, chromaY - 12, 10, 12);
+  // Eyes
+  ctx.fillStyle = '#302020';
+  ctx.fillRect(chromaX - 3, chromaY - 8, 2, 2);
+  ctx.fillRect(chromaX + 2, chromaY - 8, 2, 2);
+  // Smile
+  ctx.fillRect(chromaX - 2, chromaY - 4, 4, 1);
+  // Wild white hair
+  ctx.fillStyle = '#e0e0e0';
+  ctx.fillRect(chromaX - 7, chromaY - 18, 14, 7);
+  ctx.fillRect(chromaX - 8, chromaY - 16, 3, 6);
+  ctx.fillRect(chromaX + 6, chromaY - 16, 3, 6);
+  ctx.fillRect(chromaX - 5, chromaY - 20, 4, 3);
+  ctx.fillRect(chromaX + 2, chromaY - 20, 4, 3);
+  // Shoes
+  ctx.fillStyle = '#302020';
+  ctx.fillRect(chromaX - 10, chromaY + 32, 7, 3);
+  ctx.fillRect(chromaX + 4, chromaY + 32, 7, 3);
+  // Baton (waving)
+  const batonWave = Math.sin(os.glowPulse * 2) * 0.4;
+  ctx.fillStyle = '#f0f0f0';
+  for (let i = 0; i < 22; i++) {
+    const bx = chromaX + 14 + Math.cos(batonWave - 0.3) * i;
+    const by = chromaY - 2 - Math.sin(batonWave - 0.3) * i;
+    ctx.fillRect(bx, by, 2, 2);
+  }
+  // Baton tip sparkle
+  const tipX = chromaX + 14 + Math.cos(batonWave - 0.3) * 22;
+  const tipY = chromaY - 2 - Math.sin(batonWave - 0.3) * 22;
+  const sparkle = Math.sin(os.glowPulse * 3) > 0.5;
+  if (sparkle) {
+    ctx.fillStyle = '#f0d040';
+    ctx.fillRect(tipX - 1, tipY - 3, 2, 2);
+    ctx.fillRect(tipX + 2, tipY, 2, 2);
+    ctx.fillRect(tipX - 3, tipY, 2, 2);
+    ctx.fillRect(tipX - 1, tipY + 2, 2, 2);
+  }
+
+  // Draw the 4 strings
+  const stringStartX = 90;
+  const stringEndX = W - 30;
+  const stringSpacing = 30;
+  const stringBaseY = 210;
+
+  for (let i = 0; i < 4; i++) {
+    const sc = STRING_COLORS[i];
+    const y = stringBaseY + i * stringSpacing;
+    const isActive = os.activeString === i && os.phase === 'playing';
+    const isPlucked = os.pluckedString === i && os.pluckTimer > 0;
+    const isWrong = os.wrongString === i && os.wrongTimer > 0;
+
+    // Glow behind active string
+    if (isActive) {
+      const pulse = Math.sin(os.glowPulse) * 0.3 + 0.7;
+      ctx.fillStyle = sc.glow + Math.floor(pulse * 40).toString(16).padStart(2, '0');
+      ctx.fillRect(stringStartX - 5, y - 8, stringEndX - stringStartX + 10, 16);
+    }
+
+    // Wrong flash
+    if (isWrong) {
+      ctx.fillStyle = 'rgba(255,0,0,0.3)';
+      ctx.fillRect(stringStartX - 5, y - 8, stringEndX - stringStartX + 10, 16);
+    }
+
+    // The string itself — with vibration if just plucked
+    const lineWidth = isActive ? 4 : 2;
+    ctx.strokeStyle = isActive ? sc.glow : sc.color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(stringStartX, y);
+
+    if (isPlucked) {
+      // Vibrating string animation
+      const decay = os.pluckTimer / 20;
+      const amp = decay * 6;
+      const freq = 0.08;
+      for (let x = stringStartX; x <= stringEndX; x += 2) {
+        const t = (x - stringStartX) / (stringEndX - stringStartX);
+        const vibration = Math.sin(t * Math.PI) * Math.sin((x + os.phaseTimer * 8) * freq) * amp;
+        ctx.lineTo(x, y + vibration);
+      }
+    } else {
+      ctx.lineTo(stringEndX, y);
+    }
+    ctx.stroke();
+
+    // String endpoints (pegs)
+    ctx.fillStyle = '#c0a060';
+    ctx.fillRect(stringStartX - 6, y - 4, 8, 8);
+    ctx.fillRect(stringEndX - 2, y - 4, 8, 8);
+
+    // Label on the left
+    drawText(sc.name, stringStartX - 30, y - 3, 1, isActive ? sc.glow : sc.color + '80', 'center');
+
+    // Key hint on the right
+    drawText('' + (i + 1), stringEndX + 16, y - 3, 1, isActive ? '#ffffff' : COLORS.darkGray, 'center');
+  }
+
+  // HUD
+  drawText('CHROMAS ORCHESTRA', W/2, 5, 2, COLORS.yellow, 'center');
+
+  // Progress dots
+  for (let i = 0; i < os.total; i++) {
+    const dotX = W/2 - (os.total * 6) + i * 12;
+    ctx.fillStyle = i < os.current ? COLORS.green : COLORS.darkGray;
+    ctx.fillRect(dotX, 26, 8, 8);
+  }
+
+  if (os.phase === 'intro') {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W/2 - 170, 65, 340, 100);
+    drawText('CHROMAS COLOR STRINGS', W/2, 72, 2, COLORS.yellow, 'center');
+    drawText('A STRING WILL GLOW BRIGHT.', W/2, 98, 1, COLORS.white, 'center');
+    drawText('CLICK IT OR PRESS ITS NUMBER', W/2, 114, 1, COLORS.white, 'center');
+    drawText('(1, 2, 3, OR 4) TO PLUCK IT!', W/2, 130, 1, COLORS.white, 'center');
+    drawText('EACH PLUCK PAINTS THE SUNRISE.', W/2, 150, 1, COLORS.lightGray, 'center');
+
+    if (os.phaseTimer > 250) {
+      os.phase = 'playing';
+      os.phaseTimer = 0;
+      os.activeString = os.sequence[0];
+    }
+  } else if (os.phase === 'playing') {
+    // Instructions reminder during gameplay
+    drawText('PLUCK THE GLOWING STRING! (CLICK OR PRESS 1-4)', W/2, 188, 1, COLORS.white, 'center');
+  } else if (os.phase === 'done') {
+    os.doneTimer++;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(0, 70, W, 80);
+    if (os.score >= 8) {
+      drawText('BEAUTIFUL SUNRISE!', W/2, 85, 3, COLORS.yellow, 'center');
+    } else if (os.score >= 5) {
+      drawText('A COLORFUL DAWN!', W/2, 85, 3, COLORS.orange, 'center');
+    } else {
+      drawText('THE COLORS WENT HAYWIRE!', W/2, 88, 2, COLORS.red, 'center');
+    }
+    drawText(os.score + ' OF ' + os.total + ' PERFECT PLUCKS!', W/2, 128, 1, COLORS.white, 'center');
+
+    if (os.doneTimer > 150 && !transitionTarget) {
+      transitionTo('driving4');
+      driveTimer = 0;
+      drivePhase = 0;
+      carX = -40;
+      signX = W + 100;
+    }
+  }
+
+  // Update sun progress
+  const targetProgress = os.score / os.total;
+  os.sunProgress += (targetProgress - os.sunProgress) * 0.03;
+}
+
+function pluckString(idx) {
+  const os = orchestraState;
+  if (os.phase !== 'playing') return;
+
+  const sc = STRING_COLORS[idx];
+
+  if (idx === os.activeString) {
+    // Correct!
+    os.score++;
+    os.pluckedString = idx;
+    os.pluckTimer = 20;
+    playTone(sc.tone, 0.4, 'sine', 0.15);
+    // Also play a harmonic
+    setTimeout(() => playTone(sc.tone * 2, 0.2, 'sine', 0.05), 50);
+
+    // Add a sky stripe
+    const stripeY = 10 + (os.current / os.total) * 140;
+    os.skyStripes.push({
+      y: stripeY,
+      h: 18,
+      color: sc.color,
+    });
+
+    os.current++;
+    if (os.current >= os.total) {
+      os.phase = 'done';
+      os.activeString = -1;
+      os.doneTimer = 0;
+      os.phaseTimer = 0;
+      sfxConfirm();
+    } else {
+      os.activeString = os.sequence[os.current];
+    }
+  } else {
+    // Wrong string — thud, flash red, but no penalty to progress
+    os.wrongString = idx;
+    os.wrongTimer = 15;
+    os.pluckedString = idx;
+    os.pluckTimer = 10;
+    playTone(80, 0.15, 'triangle', 0.08);
+  }
+}
+
+// Orchestra input handlers
+window.addEventListener('keydown', (e) => {
+  if (gameState !== 'orchestra') return;
+  if (e.key === '1') pluckString(0);
+  else if (e.key === '2') pluckString(1);
+  else if (e.key === '3') pluckString(2);
+  else if (e.key === '4') pluckString(3);
+});
+
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'orchestra') return;
+  const rect = canvas.getBoundingClientRect();
+  const my = (e.clientY - rect.top) / (rect.height / H);
+  const stringBaseY = 210;
+  const stringSpacing = 30;
+  for (let i = 0; i < 4; i++) {
+    const y = stringBaseY + i * stringSpacing;
+    if (my >= y - 12 && my < y + 12) {
+      pluckString(i);
+      return;
+    }
+  }
+});
+
+// ============================================================
+// DRIVING 4: TO DIGITOPOLIS
+// ============================================================
+
+function renderDriving4() {
+  driveTimer++;
+  const scrollSpeed = 3;
+  const scrollOffset = driveTimer * scrollSpeed;
+
+  // Bright daytime sky (sunrise completed!)
   const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-  gradient.addColorStop(0, '#4060c0');
-  gradient.addColorStop(1, '#80a0e0');
+  gradient.addColorStop(0, '#3060c0');
+  gradient.addColorStop(1, '#80b0e0');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, W, 200);
+
+  // Sun in sky
+  ctx.fillStyle = '#f0d040';
+  ctx.beginPath();
+  ctx.arc(380, 50, 25, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawRoad(scrollOffset);
 
   // Clouds
   ctx.fillStyle = '#ffffff40';
@@ -1162,21 +1746,1065 @@ function renderDriving3() {
     ctx.fillRect(cx, 30 + i * 20, 60, 12);
   }
 
-  // Hills
+  // Hills — transitioning to rockier terrain for Digitopolis
   ctx.fillStyle = '#2a6a2a';
   for (let x = 0; x < W; x++) {
-    const h = Math.sin((x + scrollOffset * 0.2) * 0.02) * 20 + Math.sin((x + scrollOffset * 0.2) * 0.005) * 30;
+    const h = Math.sin((x + scrollOffset * 0.2) * 0.02) * 25 + Math.sin((x + scrollOffset * 0.15) * 0.04) * 15;
     ctx.fillRect(x, 190 - h, 1, 10 + h);
   }
 
-  carX = Math.min(carX + 2, W / 2 - 24);
-  drawCar(carX, 232, driveTimer * 0.15);
-  const key = characterKeys[selectedCharacter];
-  drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+  if (drivePhase === 0) {
+    carX = Math.min(carX + 2, W / 2 - 24);
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
 
-  drawText('ONWARD TO ADVENTURE...', W/2, 100, 2, COLORS.white, 'center');
-  drawText('MORE LEVELS COMING SOON!', W/2, 130, 1, COLORS.yellow, 'center');
+    if (driveTimer > 90) {
+      drivePhase = 1;
+    }
+  } else if (drivePhase === 1) {
+    drawCar(W / 2 - 24, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, W / 2 - 14, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    signX = Math.max(signX - 4, W / 2 - 80);
+
+    // Digitopolis sign (math/number themed)
+    ctx.fillStyle = '#1a4a6a';
+    ctx.fillRect(signX - 5, 40, 170, 90);
+    ctx.fillStyle = '#d0e8f0';
+    ctx.fillRect(signX, 45, 160, 80);
+    ctx.fillStyle = '#1a4a6a';
+    ctx.fillRect(signX + 30, 130, 8, 70);
+    ctx.fillRect(signX + 120, 130, 8, 70);
+
+    drawText('WELCOME TO', signX + 80, 55, 1, '#1a4a6a', 'center');
+    drawText('DIGIT-', signX + 80, 72, 2, '#2060a0', 'center');
+    drawText('OPOLIS!', signX + 80, 95, 2, '#2060a0', 'center');
+
+    if (signX <= W / 2 - 80 && driveTimer > 260) {
+      drivePhase = 2;
+      driveTimer = 0;
+    }
+  } else if (drivePhase === 2) {
+    carX = W / 2 - 24 + driveTimer * 3;
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    // Sign stays
+    ctx.fillStyle = '#1a4a6a';
+    ctx.fillRect(signX - 5, 40, 170, 90);
+    ctx.fillStyle = '#d0e8f0';
+    ctx.fillRect(signX, 45, 160, 80);
+    ctx.fillStyle = '#1a4a6a';
+    ctx.fillRect(signX + 30, 130, 8, 70);
+    ctx.fillRect(signX + 120, 130, 8, 70);
+    drawText('WELCOME TO', signX + 80, 55, 1, '#1a4a6a', 'center');
+    drawText('DIGIT-', signX + 80, 72, 2, '#2060a0', 'center');
+    drawText('OPOLIS!', signX + 80, 95, 2, '#2060a0', 'center');
+
+    if (carX > W + 60 && !transitionTarget) {
+      // TODO: transition to Level 2 - Number Mine
+      transitionTo('numbermine');
+    }
+  }
 }
+
+// ============================================================
+// LEVEL 2: THE NUMBER MINE
+// ============================================================
+let numberMineState = {};
+
+function generateMathProblem(round) {
+  // Start easy, get slightly harder
+  let a, b, op, answer, opSymbol;
+  if (round < 3) {
+    // Easy addition
+    a = Math.floor(Math.random() * 10) + 1;
+    b = Math.floor(Math.random() * 10) + 1;
+    op = '+';
+    answer = a + b;
+  } else if (round < 6) {
+    // Mix of addition and subtraction
+    if (Math.random() < 0.5) {
+      a = Math.floor(Math.random() * 15) + 5;
+      b = Math.floor(Math.random() * 10) + 1;
+      op = '+';
+      answer = a + b;
+    } else {
+      a = Math.floor(Math.random() * 15) + 10;
+      b = Math.floor(Math.random() * (a - 1)) + 1;
+      op = '-';
+      answer = a - b;
+    }
+  } else {
+    // Harder addition and subtraction
+    if (Math.random() < 0.5) {
+      a = Math.floor(Math.random() * 30) + 10;
+      b = Math.floor(Math.random() * 20) + 5;
+      op = '+';
+      answer = a + b;
+    } else {
+      a = Math.floor(Math.random() * 40) + 20;
+      b = Math.floor(Math.random() * 20) + 1;
+      op = '-';
+      answer = a - b;
+    }
+  }
+
+  // Generate wrong answers that are close to the real answer
+  const wrongs = new Set();
+  while (wrongs.size < 2) {
+    let w = answer + (Math.floor(Math.random() * 7) - 3);
+    if (w !== answer && w >= 0) wrongs.add(w);
+  }
+  const options = [answer, ...wrongs];
+  // Shuffle options
+  for (let i = options.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+
+  return {
+    text: a + ' ' + op + ' ' + b + ' = ?',
+    answer: answer,
+    options: options,
+    correctIdx: options.indexOf(answer),
+  };
+}
+
+function startNumberMine() {
+  const problem = generateMathProblem(0);
+  numberMineState = {
+    round: 0,
+    total: 8,
+    score: 0,
+    problem: problem,
+    selected: -1,
+    feedback: '',
+    feedbackTimer: 0,
+    done: false,
+    introTimer: 0,
+    pickaxeAngle: 0,
+    gems: [],         // sparkle effects when correct
+    depth: 0,         // how deep we've mined (visual)
+    collectedGems: [], // gems found so far {color, shape}
+  };
+}
+
+function renderNumberMine() {
+  const nm = numberMineState;
+  nm.introTimer++;
+  nm.pickaxeAngle += 0.03;
+
+  // Underground cave background
+  const depthShade = Math.min(nm.depth * 8, 40);
+  ctx.fillStyle = `rgb(${40 - depthShade},${30 - depthShade},${20 - depthShade})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Rocky cave walls
+  ctx.fillStyle = '#4a3a2a';
+  // Left wall
+  for (let y = 0; y < H; y += 8) {
+    const w = 20 + Math.sin(y * 0.1 + nm.depth) * 10;
+    ctx.fillRect(0, y, w, 8);
+  }
+  // Right wall
+  for (let y = 0; y < H; y += 8) {
+    const w = 20 + Math.sin(y * 0.13 + nm.depth + 2) * 10;
+    ctx.fillRect(W - w, y, w, 8);
+  }
+  // Ceiling stalactites
+  for (let x = 30; x < W - 30; x += 25) {
+    const h = 15 + Math.sin(x * 0.2) * 10;
+    ctx.fillStyle = '#3a2a1a';
+    ctx.fillRect(x, 0, 8, h);
+    ctx.fillRect(x + 2, h, 4, 5);
+  }
+
+  // Embedded gems/crystals in walls (decoration)
+  const gemColors = ['#e04040', '#40e040', '#4080e0', '#e0e040', '#e040e0'];
+  for (let i = 0; i < 8; i++) {
+    const gx = (i * 73 + 15 + nm.depth * 3) % (W - 60) + 30;
+    const gy = (i * 47 + 20) % (H - 60) + 30;
+    const gc = gemColors[i % gemColors.length];
+    const sparkle = Math.sin(frameCount * 0.05 + i * 2) * 0.3 + 0.7;
+    ctx.fillStyle = gc + Math.floor(sparkle * 99).toString(16).padStart(2, '0');
+    ctx.fillRect(gx, gy, 5, 5);
+    ctx.fillStyle = '#ffffff40';
+    ctx.fillRect(gx + 1, gy + 1, 2, 2);
+  }
+
+  // Ground/floor
+  ctx.fillStyle = '#5a4a3a';
+  ctx.fillRect(30, H - 30, W - 60, 30);
+  ctx.fillStyle = '#6a5a4a';
+  ctx.fillRect(30, H - 30, W - 60, 4);
+
+  // Gem sparkle effects
+  for (let i = nm.gems.length - 1; i >= 0; i--) {
+    const gem = nm.gems[i];
+    gem.life--;
+    gem.y -= 1.5;
+    gem.x += gem.dx;
+    const alpha = gem.life / gem.maxLife;
+    ctx.fillStyle = gem.color;
+    ctx.globalAlpha = alpha;
+    ctx.fillRect(gem.x - 3, gem.y - 3, 6, 6);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(gem.x - 1, gem.y - 1, 2, 2);
+    ctx.globalAlpha = 1;
+    if (gem.life <= 0) nm.gems.splice(i, 1);
+  }
+
+  // Pickaxe on the right side (animated)
+  const pxX = W - 65;
+  const pxY = 200;
+  const swing = Math.sin(nm.pickaxeAngle) * 0.4;
+  // Handle
+  ctx.fillStyle = '#8a6a40';
+  for (let i = 0; i < 25; i++) {
+    ctx.fillRect(pxX - Math.sin(swing) * i, pxY + Math.cos(swing) * i, 3, 3);
+  }
+  // Head
+  const headX = pxX - Math.sin(swing) * 25;
+  const headY = pxY + Math.cos(swing) * 25;
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(headX - 8, headY - 2, 16, 6);
+  ctx.fillStyle = '#a0a0a0';
+  ctx.fillRect(headX - 10, headY - 1, 4, 4);
+
+  // Title
+  drawText('THE NUMBER MINE', W/2, 8, 2, COLORS.yellow, 'center');
+  drawText('DIG FOR THE RIGHT ANSWER!', W/2, 28, 1, COLORS.white, 'center');
+
+  // Score
+  drawText('SCORE: ' + nm.score + '/' + nm.total, W - 20, 8, 1, COLORS.green, 'right');
+
+  // Depth indicator
+  drawText('DEPTH: ' + (nm.depth * 10) + ' FT', 20, 42, 1, COLORS.lightGray, 'left');
+
+  // Collected gems display — show each gem with its name
+  if (nm.collectedGems.length > 0) {
+    // Background panel
+    const panelW = nm.collectedGems.length * 52 + 16;
+    const panelX = W/2 - panelW/2;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(panelX, H - 50, panelW, 46);
+    ctx.strokeStyle = '#6a5a4a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(panelX, H - 50, panelW, 46);
+    drawText('GEMS FOUND', W/2, H - 48, 1, COLORS.gold, 'center');
+
+    for (let i = 0; i < nm.collectedGems.length; i++) {
+      const g = nm.collectedGems[i];
+      const gx = panelX + 12 + i * 52 + 18;
+      const gy = H - 26;
+      const bob = Math.sin(frameCount * 0.04 + i * 0.8) * 1.5;
+
+      // Glow behind gem
+      ctx.fillStyle = g.color + '40';
+      ctx.beginPath();
+      ctx.arc(gx, gy + bob, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Gem shape
+      ctx.fillStyle = g.color;
+      if (g.shape === 'diamond') {
+        ctx.beginPath();
+        ctx.moveTo(gx, gy - 8 + bob);
+        ctx.lineTo(gx + 6, gy + bob);
+        ctx.lineTo(gx, gy + 8 + bob);
+        ctx.lineTo(gx - 6, gy + bob);
+        ctx.closePath();
+        ctx.fill();
+      } else if (g.shape === 'oval') {
+        ctx.beginPath();
+        ctx.ellipse(gx, gy + bob, 7, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (g.shape === 'rect') {
+        ctx.fillRect(gx - 6, gy - 4 + bob, 12, 8);
+      } else if (g.shape === 'octagon') {
+        ctx.beginPath();
+        ctx.moveTo(gx - 3, gy - 7 + bob);
+        ctx.lineTo(gx + 3, gy - 7 + bob);
+        ctx.lineTo(gx + 7, gy - 3 + bob);
+        ctx.lineTo(gx + 7, gy + 3 + bob);
+        ctx.lineTo(gx + 3, gy + 7 + bob);
+        ctx.lineTo(gx - 3, gy + 7 + bob);
+        ctx.lineTo(gx - 7, gy + 3 + bob);
+        ctx.lineTo(gx - 7, gy - 3 + bob);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Sparkle highlight
+      ctx.fillStyle = '#ffffff80';
+      ctx.fillRect(gx - 2, gy - 3 + bob, 3, 3);
+
+      // Gem name below
+      drawText(g.name, gx, gy + 12, 1, g.color, 'center');
+    }
+  }
+
+  if (nm.done) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 100, W, 80);
+    drawText('MINE COMPLETE!', W/2, 115, 3, COLORS.yellow, 'center');
+    drawText('YOU DUG UP ' + nm.score + ' OUT OF ' + nm.total + ' GEMS!', W/2, 150, 1, COLORS.white, 'center');
+    const msg = nm.score >= 7 ? 'MASTER MATHEMATICIAN!' : nm.score >= 5 ? 'GOOD DIGGING!' : 'KEEP PRACTICING!';
+    drawText(msg, W/2, 168, 1, COLORS.green, 'center');
+    if (Math.floor(frameCount / 30) % 2 === 0) {
+      drawText('CLICK TO CONTINUE', W/2, 250, 1, COLORS.cyan, 'center');
+    }
+    return;
+  }
+
+  // Math problem
+  const prob = nm.problem;
+
+  // Problem display — like carved in rock
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(W/2 - 100, 60, 200, 40);
+  ctx.strokeStyle = '#6a5a4a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(W/2 - 100, 60, 200, 40);
+  drawText(prob.text, W/2, 72, 3, COLORS.yellow, 'center');
+
+  // Answer options — like gems to dig up
+  const optionY = 130;
+  const optionSpacing = 50;
+  for (let i = 0; i < 3; i++) {
+    const y = optionY + i * optionSpacing;
+    const isHover = nm.selected === i;
+
+    // Gem-shaped option
+    ctx.fillStyle = isHover ? '#5a4a3a' : '#3a2a1a';
+    ctx.fillRect(W/2 - 80, y - 5, 160, 35);
+    ctx.strokeStyle = isHover ? COLORS.yellow : '#6a5a4a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W/2 - 80, y - 5, 160, 35);
+
+    // Gem icon
+    const gemC = ['#e04040', '#40e040', '#4080e0'][i];
+    ctx.fillStyle = gemC;
+    ctx.fillRect(W/2 - 65, y + 5, 10, 10);
+    ctx.fillStyle = '#ffffff40';
+    ctx.fillRect(W/2 - 63, y + 7, 4, 4);
+
+    // Number
+    drawText('' + prob.options[i], W/2 + 10, y + 5, 2, isHover ? COLORS.yellow : COLORS.white, 'center');
+  }
+
+  // Feedback
+  if (nm.feedbackTimer > 0) {
+    nm.feedbackTimer--;
+    const fbColor = nm.feedback === 'CORRECT!' ? COLORS.green : COLORS.red;
+    drawText(nm.feedback, W/2, 295, 2, fbColor, 'center');
+
+    if (nm.feedbackTimer === 0) {
+      nm.round++;
+      nm.depth++;
+      if (nm.round >= nm.total) {
+        nm.done = true;
+        sfxConfirm();
+      } else {
+        nm.problem = generateMathProblem(nm.round);
+      }
+    }
+  } else if (nm.collectedGems.length === 0) {
+    drawText('CLICK OR PRESS 1, 2, 3', W/2, 300, 1, COLORS.gray, 'center');
+  }
+}
+
+function numberMineAnswer(choice) {
+  const nm = numberMineState;
+  if (nm.done || nm.feedbackTimer > 0) return;
+  if (choice === nm.problem.correctIdx) {
+    nm.score++;
+    nm.feedback = 'CORRECT!';
+    sfxConfirm();
+    // Add a collected gem (named gem types)
+    const GEM_TYPES = [
+      { name: 'RUBY', color: '#e02020', shape: 'octagon' },
+      { name: 'EMERALD', color: '#20c040', shape: 'rect' },
+      { name: 'SAPPHIRE', color: '#2060e0', shape: 'oval' },
+      { name: 'DIAMOND', color: '#c0e0ff', shape: 'diamond' },
+      { name: 'AMETHYST', color: '#a040e0', shape: 'diamond' },
+      { name: 'TOPAZ', color: '#e0a020', shape: 'rect' },
+      { name: 'OPAL', color: '#e0d0f0', shape: 'oval' },
+      { name: 'GARNET', color: '#a02040', shape: 'octagon' },
+    ];
+    const gem = GEM_TYPES[Math.floor(Math.random() * GEM_TYPES.length)];
+    nm.collectedGems.push({ name: gem.name, color: gem.color, shape: gem.shape });
+    // Gem sparkles
+    const sparkleColors = ['#e02020', '#20c040', '#2060e0', '#e0a020', '#a040e0', '#c0e0ff'];
+    for (let i = 0; i < 6; i++) {
+      nm.gems.push({
+        x: W/2 - 20 + Math.random() * 40,
+        y: 160,
+        dx: (Math.random() - 0.5) * 3,
+        color: sparkleColors[Math.floor(Math.random() * sparkleColors.length)],
+        life: 30 + Math.random() * 20,
+        maxLife: 50,
+      });
+    }
+  } else {
+    nm.feedback = 'NOT QUITE! ANSWER: ' + nm.problem.answer;
+    playTone(150, 0.2, 'square', 0.08);
+  }
+  nm.feedbackTimer = 60;
+}
+
+// Number Mine input handlers
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'numbermine' && !numberMineState.done && numberMineState.feedbackTimer === 0) {
+    if (e.key === '1') numberMineAnswer(0);
+    else if (e.key === '2') numberMineAnswer(1);
+    else if (e.key === '3') numberMineAnswer(2);
+  }
+  if (gameState === 'numbermine' && numberMineState.done) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      sfxConfirm();
+      transitionTo('driving5');
+      driveTimer = 0;
+      drivePhase = 0;
+      carX = -40;
+    }
+  }
+});
+
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'numbermine') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / (rect.width / W);
+  const my = (e.clientY - rect.top) / (rect.height / H);
+
+  if (numberMineState.done) {
+    sfxConfirm();
+    transitionTo('driving5');
+    driveTimer = 0;
+    drivePhase = 0;
+    carX = -40;
+    return;
+  }
+
+  if (numberMineState.feedbackTimer > 0) return;
+
+  const optionY = 130;
+  const optionSpacing = 50;
+  for (let i = 0; i < 3; i++) {
+    const y = optionY + i * optionSpacing;
+    if (mx > W/2 - 80 && mx < W/2 + 80 && my > y - 5 && my < y + 30) {
+      numberMineAnswer(i);
+      return;
+    }
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (gameState !== 'numbermine' || numberMineState.done) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / (rect.width / W);
+  const my = (e.clientY - rect.top) / (rect.height / H);
+  numberMineState.selected = -1;
+  const optionY = 130;
+  const optionSpacing = 50;
+  for (let i = 0; i < 3; i++) {
+    const y = optionY + i * optionSpacing;
+    if (mx > W/2 - 80 && mx < W/2 + 80 && my > y - 5 && my < y + 30) {
+      numberMineState.selected = i;
+    }
+  }
+});
+
+// ============================================================
+// DRIVING 5: TO MOUNTAINS OF IGNORANCE
+// ============================================================
+
+function renderDriving5() {
+  driveTimer++;
+  const scrollSpeed = 3;
+  const scrollOffset = driveTimer * scrollSpeed;
+
+  // Darkening sky — approaching the Mountains of Ignorance
+  const darkProgress = Math.min(1, driveTimer / 200);
+  const skyR = Math.floor(48 - darkProgress * 30);
+  const skyG = Math.floor(96 - darkProgress * 60);
+  const skyB = Math.floor(192 - darkProgress * 100);
+  ctx.fillStyle = `rgb(${skyR},${skyG},${skyB})`;
+  ctx.fillRect(0, 0, W, 200);
+
+  drawRoad(scrollOffset);
+
+  // Dark jagged mountains in background
+  ctx.fillStyle = `rgb(${Math.floor(40 - darkProgress * 20)},${Math.floor(35 - darkProgress * 15)},${Math.floor(45 - darkProgress * 20)})`;
+  for (let x = 0; x < W; x++) {
+    const h = Math.abs(Math.sin((x + scrollOffset * 0.1) * 0.03)) * 50
+            + Math.abs(Math.sin((x + scrollOffset * 0.1) * 0.07)) * 25;
+    ctx.fillRect(x, 150 - h, 1, 50 + h);
+  }
+
+  // Dark ground
+  ctx.fillStyle = '#2a2520';
+  ctx.fillRect(0, 200, W, 120);
+
+  if (drivePhase === 0) {
+    carX = Math.min(carX + 2, W / 2 - 24);
+    drawCar(carX, 232, driveTimer * 0.15);
+    const key = characterKeys[selectedCharacter];
+    drawPixelArt(SPRITES[key].data, carX + 10, 208 + Math.sin(driveTimer * 0.15) * 2, 2);
+
+    if (driveTimer > 60) {
+      drawText('THE MOUNTAINS OF IGNORANCE...', W/2, 60, 1, COLORS.lightGray, 'center');
+    }
+    if (driveTimer > 130) {
+      drawText('DEMONS LURK AHEAD!', W/2, 80, 2, COLORS.red, 'center');
+    }
+    if (driveTimer > 210) {
+      drawText('CLIMB TO THE CASTLE IN THE AIR', W/2, 110, 1, COLORS.white, 'center');
+      drawText('TO RESCUE RHYME AND REASON!', W/2, 126, 1, COLORS.white, 'center');
+    }
+    if (driveTimer > 320 && !transitionTarget) {
+      transitionTo('staircase');
+    }
+  }
+}
+
+// ============================================================
+// LEVEL 3: DEMON DODGE STAIRCASE
+// ============================================================
+let staircaseState = {};
+
+function startStaircase() {
+  // Build the staircase — a series of platforms going up
+  const platforms = [];
+  const totalHeight = 2200; // total climb distance (shorter level)
+  const platCount = 30;
+
+  // Ground platform at the very bottom (full width)
+  platforms.push({
+    x: 0,
+    y: totalHeight + 20,
+    w: W,
+    isGround: true,
+  });
+
+  for (let i = 0; i < platCount; i++) {
+    const y = totalHeight - i * (totalHeight / platCount);
+    const x = 60 + Math.sin(i * 0.7) * 120 + Math.random() * 80;
+    platforms.push({
+      x: x,
+      y: y,
+      w: 60 + Math.random() * 30,
+    });
+  }
+
+  // Add a landing platform near the top and the castle above it
+  platforms.push({
+    x: W / 2 - 45,
+    y: 30,
+    w: 90,
+  });
+  // Castle in the Air (win trigger)
+  platforms.push({
+    x: W / 2 - 60,
+    y: -60,
+    w: 120,
+    isCastle: true,
+  });
+
+  // Spawn demons at various heights
+  const demons = [];
+  const demonTypes = [
+    { name: 'TRIVIUM', color: '#a04040', speed: 1.2, w: 20, h: 24 },
+    { name: 'GIANT', color: '#40a060', speed: 0.6, w: 28, h: 32 },
+    { name: 'SENSES', color: '#8040a0', speed: 1.8, w: 16, h: 20 },
+  ];
+
+  for (let i = 0; i < 9; i++) {
+    const dtype = demonTypes[i % demonTypes.length];
+    const demonY = totalHeight - 200 - i * (totalHeight / 11);
+    demons.push({
+      x: 40 + Math.random() * (W - 80),
+      y: demonY,
+      baseX: 40 + Math.random() * (W - 80),
+      type: dtype,
+      dir: Math.random() < 0.5 ? 1 : -1,
+      phase: Math.random() * Math.PI * 2,
+      amplitude: 60 + Math.random() * 80,
+    });
+  }
+
+  staircaseState = {
+    platforms: platforms,
+    demons: demons,
+    playerX: W / 2,
+    playerY: totalHeight + 20,
+    playerVX: 0,
+    playerVY: 0,
+    onGround: false,
+    cameraY: totalHeight - H + 100,
+    totalHeight: totalHeight,
+    phase: 'intro',      // intro, playing, won
+    phaseTimer: 0,
+    lives: 3,
+    hitTimer: 0,         // invincibility frames after hit
+    done: false,
+    doneTimer: 0,
+    jumpHeld: false,
+  };
+}
+
+function renderStaircase() {
+  const st = staircaseState;
+  st.phaseTimer++;
+
+  // Dark ominous sky with gradient
+  const heightProgress = 1 - (st.cameraY / st.totalHeight);
+  const skyR = Math.floor(15 + heightProgress * 25);
+  const skyG = Math.floor(10 + heightProgress * 15);
+  const skyB = Math.floor(30 + heightProgress * 50);
+  ctx.fillStyle = `rgb(${skyR},${skyG},${skyB})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars (more visible higher up)
+  for (let i = 0; i < 30; i++) {
+    const sx = (i * 73 + 20) % W;
+    const sy = ((i * 47 + st.cameraY * 0.1) % H + H) % H;
+    const alpha = 0.2 + heightProgress * 0.5 + Math.sin(frameCount * 0.02 + i) * 0.15;
+    ctx.fillStyle = `rgba(255,255,255,${Math.max(0, alpha)})`;
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+
+  // Castle in the Air at the very top (visible when close)
+  if (st.cameraY < 250) {
+    const castleScreenY = -60 - st.cameraY;
+    // Castle floating
+    const castleBob = Math.sin(frameCount * 0.02) * 5;
+    const cy = castleScreenY + castleBob;
+
+    // Cloud base
+    ctx.fillStyle = '#ffffff30';
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.arc(W/2 - 30 + i * 15, cy + 50, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Castle body
+    ctx.fillStyle = '#d0c0a0';
+    ctx.fillRect(W/2 - 35, cy - 20, 70, 60);
+    // Towers
+    ctx.fillStyle = '#c0b090';
+    ctx.fillRect(W/2 - 40, cy - 40, 20, 80);
+    ctx.fillRect(W/2 + 20, cy - 40, 20, 80);
+    // Tower tops
+    ctx.fillStyle = '#a08060';
+    ctx.fillRect(W/2 - 42, cy - 48, 24, 10);
+    ctx.fillRect(W/2 + 18, cy - 48, 24, 10);
+    // Flags
+    ctx.fillStyle = '#e04040';
+    ctx.fillRect(W/2 - 38, cy - 60, 12, 10);
+    ctx.fillRect(W/2 + 22, cy - 60, 12, 10);
+    // Door
+    ctx.fillStyle = '#6a5030';
+    ctx.fillRect(W/2 - 8, cy + 20, 16, 20);
+    // Windows
+    ctx.fillStyle = '#f0e080';
+    ctx.fillRect(W/2 - 25, cy - 5, 8, 10);
+    ctx.fillRect(W/2 + 17, cy - 5, 8, 10);
+    // Label
+    drawText('CASTLE IN THE AIR', W/2, cy - 68, 1, COLORS.yellow, 'center');
+  }
+
+  // Draw platforms (stone stairs)
+  for (const plat of st.platforms) {
+    const screenY = plat.y - st.cameraY;
+    if (screenY < -20 || screenY > H + 20) continue;
+    if (plat.isCastle) continue; // castle drawn separately
+
+    if (plat.isGround) {
+      // Solid ground at bottom
+      ctx.fillStyle = '#4a3a2a';
+      ctx.fillRect(0, screenY, W, H - screenY + 50);
+      ctx.fillStyle = '#5a4a3a';
+      ctx.fillRect(0, screenY, W, 6);
+      // Rocky texture
+      ctx.fillStyle = '#3a2a1a';
+      for (let tx = 0; tx < W; tx += 20) {
+        ctx.fillRect(tx, screenY + 6, 12, 3);
+      }
+      continue;
+    }
+
+    // Stone platform
+    ctx.fillStyle = '#5a5050';
+    ctx.fillRect(plat.x, screenY, plat.w, 10);
+    ctx.fillStyle = '#6a6060';
+    ctx.fillRect(plat.x, screenY, plat.w, 4);
+    // Stone texture
+    ctx.fillStyle = '#4a4040';
+    for (let tx = plat.x + 5; tx < plat.x + plat.w - 5; tx += 15) {
+      ctx.fillRect(tx, screenY + 4, 8, 1);
+    }
+  }
+
+  // Draw demons
+  for (const demon of st.demons) {
+    const screenY = demon.y - st.cameraY;
+    if (screenY < -40 || screenY > H + 40) continue;
+
+    // Move demon side to side
+    demon.phase += 0.02;
+    demon.x = demon.baseX + Math.sin(demon.phase) * demon.amplitude;
+    demon.x = Math.max(10, Math.min(W - demon.type.w - 10, demon.x));
+
+    const dt = demon.type;
+    const dx = demon.x;
+    const dy = screenY;
+
+    // Demon body
+    ctx.fillStyle = dt.color;
+    ctx.fillRect(dx, dy - dt.h, dt.w, dt.h);
+
+    // Evil eyes
+    ctx.fillStyle = '#ff0000';
+    ctx.fillRect(dx + 4, dy - dt.h + 5, 3, 3);
+    ctx.fillRect(dx + dt.w - 7, dy - dt.h + 5, 3, 3);
+
+    // Mouth
+    ctx.fillStyle = '#200000';
+    ctx.fillRect(dx + 5, dy - dt.h + 12, dt.w - 10, 3);
+
+    // Horns/spikes on top
+    ctx.fillStyle = dt.color;
+    ctx.fillRect(dx + 2, dy - dt.h - 5, 4, 6);
+    ctx.fillRect(dx + dt.w - 6, dy - dt.h - 5, 4, 6);
+  }
+
+  // Player character
+  if (st.phase === 'playing' || st.phase === 'won') {
+    const playerScreenY = st.playerY - st.cameraY;
+
+    // Flash when hit (invincibility)
+    if (st.hitTimer <= 0 || Math.floor(st.hitTimer / 3) % 2 === 0) {
+      const key = characterKeys[selectedCharacter];
+      drawPixelArt(SPRITES[key].data, st.playerX - 24, playerScreenY - 48, 3);
+    }
+  }
+
+  // HUD
+  drawText('CASTLE IN THE AIR', W/2, 5, 2, COLORS.yellow, 'center');
+
+  // Lives
+  for (let i = 0; i < st.lives; i++) {
+    ctx.fillStyle = COLORS.red;
+    ctx.fillRect(10 + i * 16, 8, 10, 10);
+    ctx.fillStyle = '#ff6060';
+    ctx.fillRect(11 + i * 16, 9, 4, 4);
+  }
+
+  // Height progress bar
+  const progress = 1 - (st.playerY / st.totalHeight);
+  ctx.fillStyle = '#303030';
+  ctx.fillRect(W - 16, 30, 8, H - 40);
+  ctx.fillStyle = COLORS.green;
+  ctx.fillRect(W - 16, 30 + (H - 40) * (1 - progress), 8, (H - 40) * progress);
+  drawText('TOP', W - 12, 22, 1, COLORS.lightGray, 'center');
+
+  if (st.phase === 'intro') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(W/2 - 180, 70, 360, 130);
+    drawText('DEMON DODGE STAIRCASE', W/2, 80, 2, COLORS.red, 'center');
+    drawText('CLIMB THE STAIRS TO THE', W/2, 110, 1, COLORS.white, 'center');
+    drawText('CASTLE IN THE AIR!', W/2, 126, 1, COLORS.white, 'center');
+    drawText('ARROW KEYS OR A/D TO MOVE', W/2, 150, 1, COLORS.lightGray, 'center');
+    drawText('SPACE OR W TO JUMP', W/2, 166, 1, COLORS.lightGray, 'center');
+    drawText('AVOID THE DEMONS!', W/2, 186, 1, COLORS.red, 'center');
+
+    if (st.phaseTimer > 280) {
+      st.phase = 'playing';
+      st.phaseTimer = 0;
+    }
+  } else if (st.phase === 'playing') {
+    // Player physics
+    // Horizontal movement
+    if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
+      st.playerVX = -3.5;
+    } else if (keys['ArrowRight'] || keys['d'] || keys['D']) {
+      st.playerVX = 3.5;
+    } else {
+      st.playerVX *= 0.8;
+    }
+
+    // Jump
+    if ((keys[' '] || keys['ArrowUp'] || keys['w'] || keys['W']) && st.onGround && !st.jumpHeld) {
+      st.playerVY = -9;
+      st.onGround = false;
+      st.jumpHeld = true;
+      playTone(300, 0.05, 'square', 0.06);
+    }
+    if (!keys[' '] && !keys['ArrowUp'] && !keys['w'] && !keys['W']) {
+      st.jumpHeld = false;
+    }
+
+    // Gravity
+    st.playerVY += 0.45;
+    if (st.playerVY > 10) st.playerVY = 10;
+
+    // Move
+    st.playerX += st.playerVX;
+    st.playerY += st.playerVY;
+
+    // Screen bounds
+    if (st.playerX < 10) st.playerX = 10;
+    if (st.playerX > W - 10) st.playerX = W - 10;
+
+    // Platform collision
+    st.onGround = false;
+    for (const plat of st.platforms) {
+      if (plat.isCastle) {
+        // Win condition — just need to get high enough and be roughly near the castle
+        if (st.playerY < plat.y + 60 && st.playerX > plat.x - 30 && st.playerX < plat.x + plat.w + 30) {
+          st.phase = 'won';
+          st.phaseTimer = 0;
+          st.done = true;
+          st.doneTimer = 0;
+          sfxConfirm();
+        }
+        continue;
+      }
+      // Check if landing on platform (falling down onto it)
+      if (st.playerVY >= 0 &&
+          st.playerX > plat.x - 10 && st.playerX < plat.x + plat.w + 10 &&
+          st.playerY >= plat.y - 2 && st.playerY <= plat.y + 12) {
+        st.playerY = plat.y;
+        st.playerVY = 0;
+        st.onGround = true;
+      }
+    }
+
+    // Floor at the bottom
+    if (st.playerY > st.totalHeight + 20) {
+      st.playerY = st.totalHeight + 20;
+      st.playerVY = 0;
+      st.onGround = true;
+    }
+
+    // Demon collision
+    if (st.hitTimer > 0) {
+      st.hitTimer--;
+    } else {
+      for (const demon of st.demons) {
+        const dt = demon.type;
+        const dx = demon.x;
+        const dy = demon.y;
+        // Simple box collision
+        if (st.playerX > dx - 15 && st.playerX < dx + dt.w + 15 &&
+            st.playerY > dy - dt.h - 20 && st.playerY < dy + 5) {
+          st.lives--;
+          st.hitTimer = 60; // invincibility frames
+          st.playerVY = -6; // bounce away
+          playTone(120, 0.2, 'square', 0.1);
+
+          if (st.lives <= 0) {
+            // Restart from the bottom
+            st.lives = 3;
+            st.playerX = W / 2;
+            st.playerY = st.totalHeight + 20;
+            st.playerVX = 0;
+            st.playerVY = 0;
+            st.cameraY = st.totalHeight - H + 100;
+            st.hitTimer = 90;
+            playTone(80, 0.4, 'sawtooth', 0.1);
+          }
+          break;
+        }
+      }
+    }
+
+    // Camera follows player (smooth)
+    const targetCameraY = st.playerY - H * 0.6;
+    st.cameraY += (targetCameraY - st.cameraY) * 0.1;
+
+  } else if (st.phase === 'won') {
+    st.doneTimer++;
+
+    // Gentle float up to the castle
+    st.playerY -= 0.5;
+    const targetCameraY = st.playerY - H * 0.5;
+    st.cameraY += (targetCameraY - st.cameraY) * 0.05;
+
+    if (st.doneTimer > 60) {
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(0, 80, W, 90);
+      drawText('YOU RESCUED', W/2, 95, 3, COLORS.yellow, 'center');
+      drawText('RHYME AND REASON!', W/2, 125, 3, COLORS.gold, 'center');
+      drawText('THE KINGDOM OF WISDOM IS SAVED!', W/2, 155, 1, COLORS.white, 'center');
+    }
+
+    if (st.doneTimer > 250 && !transitionTarget) {
+      transitionTo('victory');
+    }
+  }
+}
+
+// ============================================================
+// VICTORY / END SCREEN
+// ============================================================
+let victoryState = {};
+
+function startVictory() {
+  victoryState = {
+    timer: 0,
+    fireworks: [],
+    characters: [
+      { name: 'RHYME', x: W/2 - 60, y: 160, color: '#e0a0d0' },
+      { name: 'REASON', x: W/2 + 60, y: 160, color: '#a0d0e0' },
+    ],
+  };
+}
+
+function renderVictory() {
+  const vs = victoryState;
+  vs.timer++;
+
+  // Background — golden/warm celebration sky
+  const gradient = ctx.createLinearGradient(0, 0, 0, H);
+  gradient.addColorStop(0, '#1a1040');
+  gradient.addColorStop(0.5, '#3a2060');
+  gradient.addColorStop(1, '#2a1848');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (let i = 0; i < 40; i++) {
+    const sx = (i * 73 + 20) % W;
+    const sy = (i * 47 + 10) % (H - 50);
+    const twinkle = Math.sin(frameCount * 0.03 + i * 1.5) * 0.3 + 0.7;
+    ctx.fillStyle = `rgba(255,255,200,${twinkle * 0.6})`;
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+
+  // Fireworks
+  if (vs.timer > 30 && vs.timer % 25 === 0 && vs.fireworks.length < 20) {
+    const fx = 40 + Math.random() * (W - 80);
+    const fy = 30 + Math.random() * 120;
+    const fc = ['#e04040', '#40e040', '#4080e0', '#e0e040', '#e040e0', '#40e0e0', '#e08020'][Math.floor(Math.random() * 7)];
+    for (let p = 0; p < 12; p++) {
+      const angle = (p / 12) * Math.PI * 2;
+      vs.fireworks.push({
+        x: fx, y: fy,
+        vx: Math.cos(angle) * (1.5 + Math.random()),
+        vy: Math.sin(angle) * (1.5 + Math.random()),
+        color: fc,
+        life: 40 + Math.random() * 20,
+        maxLife: 60,
+      });
+    }
+    playTone(400 + Math.random() * 400, 0.1, 'sine', 0.06);
+  }
+
+  for (let i = vs.fireworks.length - 1; i >= 0; i--) {
+    const fw = vs.fireworks[i];
+    fw.x += fw.vx;
+    fw.y += fw.vy;
+    fw.vy += 0.03;
+    fw.life--;
+    const alpha = fw.life / fw.maxLife;
+    ctx.fillStyle = fw.color;
+    ctx.globalAlpha = alpha;
+    ctx.fillRect(fw.x - 2, fw.y - 2, 4, 4);
+    ctx.globalAlpha = 1;
+    if (fw.life <= 0) vs.fireworks.splice(i, 1);
+  }
+
+  // Title
+  if (vs.timer > 10) {
+    const pulse = Math.sin(vs.timer * 0.04) * 0.15 + 0.85;
+    drawText('THE END', W/2, 30, 3, COLORS.yellow, 'center');
+  }
+
+  // Princesses Rhyme and Reason
+  if (vs.timer > 60) {
+    for (const ch of vs.characters) {
+      const bob = Math.sin(frameCount * 0.03 + (ch.name === 'RHYME' ? 0 : Math.PI)) * 3;
+      // Crown
+      ctx.fillStyle = '#f0d040';
+      ctx.fillRect(ch.x - 6, ch.y - 34 + bob, 12, 4);
+      ctx.fillRect(ch.x - 8, ch.y - 38 + bob, 3, 5);
+      ctx.fillRect(ch.x - 1, ch.y - 40 + bob, 3, 7);
+      ctx.fillRect(ch.x + 5, ch.y - 38 + bob, 3, 5);
+      // Head
+      ctx.fillStyle = '#f0b888';
+      ctx.fillRect(ch.x - 6, ch.y - 30 + bob, 12, 12);
+      // Eyes
+      ctx.fillStyle = '#302020';
+      ctx.fillRect(ch.x - 4, ch.y - 26 + bob, 2, 2);
+      ctx.fillRect(ch.x + 2, ch.y - 26 + bob, 2, 2);
+      // Smile
+      ctx.fillRect(ch.x - 2, ch.y - 22 + bob, 4, 1);
+      // Hair
+      ctx.fillStyle = ch.name === 'RHYME' ? '#8a5a30' : '#4a3020';
+      ctx.fillRect(ch.x - 8, ch.y - 30 + bob, 3, 14);
+      ctx.fillRect(ch.x + 5, ch.y - 30 + bob, 3, 14);
+      ctx.fillRect(ch.x - 7, ch.y - 32 + bob, 14, 3);
+      // Dress
+      ctx.fillStyle = ch.color;
+      ctx.fillRect(ch.x - 8, ch.y - 18 + bob, 16, 22);
+      ctx.fillRect(ch.x - 10, ch.y - 8 + bob, 20, 14);
+      // Name
+      drawText(ch.name, ch.x, ch.y + 10 + bob, 1, ch.color, 'center');
+    }
+
+    // Player character between them
+    const key = characterKeys[selectedCharacter];
+    const playerBob = Math.sin(frameCount * 0.03 + 1) * 3;
+    drawPixelArt(SPRITES[key].data, W/2 - 24, 130 + playerBob, 3);
+  }
+
+  // Story message
+  if (vs.timer > 120) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(30, 210, W - 60, 95);
+
+    drawText('RHYME AND REASON HAVE RETURNED', W/2, 218, 1, COLORS.white, 'center');
+    drawText('TO THE KINGDOM OF WISDOM.', W/2, 234, 1, COLORS.white, 'center');
+    drawText('THE LANDS BEYOND ARE AT PEACE', W/2, 256, 1, COLORS.lightGray, 'center');
+    drawText('ONCE MORE.', W/2, 272, 1, COLORS.lightGray, 'center');
+  }
+
+  if (vs.timer > 220) {
+    drawText('AND MILO LEARNED THAT THERE IS SO', W/2, 295, 1, COLORS.gold, 'center');
+    drawText('MUCH TO DO RIGHT WHERE HE IS.', W/2, 309, 1, COLORS.gold, 'center');
+  }
+
+  // Credits / replay
+  if (vs.timer > 350) {
+    if (Math.floor(frameCount / 30) % 2 === 0) {
+      drawText('CLICK TO PLAY AGAIN', W/2, H - 8, 1, COLORS.cyan, 'center');
+    }
+  }
+}
+
+// Victory input handlers
+window.addEventListener('keydown', (e) => {
+  if (gameState !== 'victory') return;
+  if (victoryState.timer > 350 && (e.key === 'Enter' || e.key === ' ')) {
+    sfxConfirm();
+    transitionTo('title');
+  }
+});
+
+canvas.addEventListener('click', (e) => {
+  if (gameState !== 'victory') return;
+  if (victoryState.timer > 350) {
+    sfxConfirm();
+    transitionTo('title');
+  }
+});
 
 // ============================================================
 // MAIN GAME LOOP
@@ -1192,6 +2820,10 @@ function gameLoop() {
       transitionTarget = null;
       // Init new state
       if (gameState === 'wordmarket') startWordMarket();
+      if (gameState === 'orchestra') startOrchestra();
+      if (gameState === 'numbermine') startNumberMine();
+      if (gameState === 'staircase') startStaircase();
+      if (gameState === 'victory') startVictory();
     }
   } else if (transitionAlpha > 0) {
     transitionAlpha -= 0.04;
@@ -1207,6 +2839,12 @@ function gameLoop() {
     case 'driving2': renderDriving2(); break;
     case 'wordmarket': renderWordMarket(); break;
     case 'driving3': renderDriving3(); break;
+    case 'orchestra': renderOrchestra(); break;
+    case 'driving4': renderDriving4(); break;
+    case 'numbermine': renderNumberMine(); break;
+    case 'driving5': renderDriving5(); break;
+    case 'staircase': renderStaircase(); break;
+    case 'victory': renderVictory(); break;
   }
 
   // Transition overlay
