@@ -438,6 +438,20 @@ function drawVirtualButtons() {
   }
 }
 
+// On mobile, ensure taps trigger click events on the canvas
+canvas.addEventListener('touchend', (e) => {
+  if (gameState === 'staircase' && staircaseState.phase === 'playing') return;
+  if (e.changedTouches.length > 0) {
+    const touch = e.changedTouches[0];
+    const clickEvt = new MouseEvent('click', {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      bubbles: true,
+    });
+    canvas.dispatchEvent(clickEvt);
+  }
+}, { passive: true });
+
 window.addEventListener('keydown', (e) => {
   keys[e.key] = true;
   keys[e.code] = true;
